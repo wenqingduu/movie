@@ -31,6 +31,25 @@ def build_qwen_model():
         base_url=QWEN_BASE_URL,
     )
 
+
+def _tool_result(result):
+    """解析 LangChain MCP tool 的返回值。
+
+    MCP tool 直接返回 dict 时，LangChain adapter 会把它包成：
+    [{"type": "text", "text": "{...json...}"}]。
+    节点代码需要拿到里面真正的 JSON dict。
+    """
+
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        item = result[0]
+        if isinstance(item, dict) and "text" in item:
+            return json.loads(item["text"])
+        if hasattr(item, "text"):
+            return json.loads(item.text)
+    return result
+
 class InputStoryAgent:
     """输入 Agent。
 
@@ -193,7 +212,7 @@ class Face3DModelingAgent:
                 "character_id": character_id,
                 "reference_image_path": character_asset["path"],
             })
-            face_3d_assets[character_id] = result
+            face_3d_assets[character_id] = _tool_result(result)
 
         asset_index = json.loads(asset_index_path.read_text(encoding="utf-8"))
 
@@ -242,6 +261,7 @@ class ShotFirstFrameAgent:
                 "first_frame_prompt": shot["first_frame_prompt"],
                 "generation_model": generation_model,
             })
+            result = _tool_result(result)
             shot["first_frame_path"] = result["frame_path"]
             shot["first_frame_denoise_log_path"] = result["denoise_log_path"]
             shot["first_frame_generation_model"] = generation_model
