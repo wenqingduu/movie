@@ -14,7 +14,7 @@ import urllib.request
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
 
-MODEL = "qwen-plus"
+MODEL = os.getenv("MULTISHOT_QWEN_MODEL", "qwen3-vl-plus")
 
 
 def call_qwen(prompt: str) -> str:

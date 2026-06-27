@@ -6,6 +6,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from .diffusion_backend import get_diffusion_backend
+
 
 # MCP server 通过环境变量拿当前项目目录。
 # 这样工具 schema 里不会出现 project_dir，模型也不能决定文件写到哪里。
@@ -37,21 +39,34 @@ def _save_index(data: dict):
     return str(index_path)
 
 
-def _fake_generate_image(prompt: str, output_path: str):
-    """临时图像生成占位函数。
+def _json_safe(data):
+    """把运行时对象转成可以写入 JSON 的结构。
 
-    现在还没有接真实图像生成模型，所以这里做两件事：
-    1. 把 prompt 写到同名 .prompt.txt，方便检查模型给工具的提示词。
-    2. touch 一个 .png 空文件，先让后续路径链路跑通。
-
-    以后接真实图像生成 API 时，只需要替换这个函数内部实现。
+    diffusion 真实运行时会把 torch tensor 放在 _latents / _noise_pred
+    这类私有字段里，供后续窗口继续去噪。日志只保存可读元数据，
+    所有下划线开头的字段都过滤掉。
     """
 
-    image_path = Path(output_path)
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    image_path.with_suffix(".prompt.txt").write_text(prompt, encoding="utf-8")
-    image_path.touch()
-    return str(image_path)
+    if isinstance(data, dict):
+        return {
+            key: _json_safe(value)
+            for key, value in data.items()
+            if not key.startswith("_")
+        }
+    if isinstance(data, list):
+        return [_json_safe(item) for item in data]
+    return data
+
+
+def _generate_image(prompt: str, output_path: str, generation_model: str | None = None):
+    """调用开源 diffusion 模型生成图片。
+
+    当前默认模型是 models/diffusion/segmind-tiny-sd。
+    这不是自写模型，只是用 diffusers 加载本地开源模型。
+    """
+
+    backend = get_diffusion_backend(generation_model)
+    return backend.generate_image(prompt, output_path)
 
 
 mcp = FastMCP("multishot-assets")
@@ -67,7 +82,7 @@ def generate_scene_asset(subscript_id: str, scene_name: str, prompt: str):
     """
 
     image_path = _project_dir() / "assets" / "scenes" / f"{subscript_id}.png"
-    saved_path = _fake_generate_image(prompt, str(image_path))
+    saved_path = _generate_image(prompt, str(image_path))
 
     asset = {
         "asset_id": f"{subscript_id}_background",
@@ -85,7 +100,7 @@ def generate_scene_asset(subscript_id: str, scene_name: str, prompt: str):
 
 
 @mcp.tool()
-def generate_char2acter_asset(character_id: str, character_name: str, prompt: str):
+def generate_character_asset(character_id: str, character_name: str, prompt: str):
     """生成并保存一个人物参考图资产。
 
     character_id: 人物 id，例如 char_001。
@@ -94,7 +109,7 @@ def generate_char2acter_asset(character_id: str, character_name: str, prompt: st
     """
 
     image_path = _project_dir() / "assets" / "characters" / f"{character_id}.png"
-    saved_path = _fake_generate_image(prompt, str(image_path))
+    saved_path = _generate_image(prompt, str(image_path))
 
     asset = {
         "asset_id": f"{character_id}_reference",
@@ -262,6 +277,80 @@ def _fake_decode_final_image(denoise_state: dict, output_path: str):
         encoding="utf-8",
     )
     return str(image_path)
+
+
+def _use_real_diffusion(generation_model: str):
+    """判断当前 shot 是否使用真实开源 diffusion 后端。"""
+
+    return generation_model != "pseudo_diffusion_v1"
+
+
+def _prepare_diffusion_runtime(generation_state: dict):
+    """为当前 shot 准备真实 diffusion 运行时。
+
+    runtime 和 backend 都是 Python 对象，不会写进日志；日志只保留公开字段。
+    """
+
+    if not _use_real_diffusion(generation_state["generation_model"]):
+        return
+
+    backend = get_diffusion_backend(generation_state["generation_model"])
+    generation_state["_diffusion_backend"] = backend
+    generation_state["_diffusion_runtime"] = backend.prepare_generation(
+        shot_id=generation_state["shot_id"],
+        prompt=generation_state["prompt"],
+    )
+
+
+def _denoise_window(
+    generation_state: dict,
+    from_step: int,
+    to_step: int,
+    previous_denoise_state: dict | None = None,
+    injection_plan: dict | None = None,
+):
+    """统一去噪窗口接口：真实 diffusion 优先，pseudo 作为 fallback。"""
+
+    backend = generation_state.get("_diffusion_backend")
+    if backend is not None:
+        return backend.denoise_window(
+            runtime=generation_state["_diffusion_runtime"],
+            from_step=from_step,
+            to_step=to_step,
+            previous_denoise_state=previous_denoise_state,
+            injection_plan=injection_plan,
+            conditioning={
+                "prompt": generation_state["prompt"],
+                "scene_asset_path": generation_state["scene_asset_path"],
+                "character_ids": generation_state["character_ids"],
+            },
+        )
+
+    return _fake_denoise_window(
+        generation_state,
+        from_step,
+        to_step,
+        previous_denoise_state=previous_denoise_state,
+        injection_plan=injection_plan,
+    )
+
+
+def _estimate_x0_preview(generation_state: dict, denoise_state: dict, output_path: str):
+    """统一 x0 预览接口。"""
+
+    backend = generation_state.get("_diffusion_backend")
+    if backend is not None:
+        return backend.estimate_x0_preview(denoise_state, output_path)
+    return _fake_estimate_x0_preview(denoise_state, output_path)
+
+
+def _decode_final_image(generation_state: dict, denoise_state: dict, output_path: str):
+    """统一最终图 decode 接口。"""
+
+    backend = generation_state.get("_diffusion_backend")
+    if backend is not None:
+        return backend.decode_final_image(denoise_state, output_path)
+    return _fake_decode_final_image(denoise_state, output_path)
 
 
 def _fake_llm_assess_face_clarity(x0_result: dict):
@@ -617,14 +706,15 @@ def _fake_rollout_injection_window(
                 for face in face_state["faces"]
             ],
         }
-        candidate_state = _fake_denoise_window(
+        candidate_state = _denoise_window(
             generation_state,
             current_step,
             next_step,
             previous_denoise_state=denoise_state,
             injection_plan=injection_plan,
         )
-        candidate_x0 = _fake_estimate_x0_preview(
+        candidate_x0 = _estimate_x0_preview(
+            generation_state,
             candidate_state,
             str(_project_dir() / "frames" / f"{generation_state['shot_id']}.step_{next_step}.rollout_{candidate_index}.x0.png"),
         )
@@ -712,11 +802,12 @@ def _fake_diffusion_first_frame(
         "scene_asset_path": scene_asset.get("path"),
         "character_ids": character_ids,
     }
+    _prepare_diffusion_runtime(generation_state)
 
     denoise_log = []
     injection_memory = _load_injection_memory()
-    final_step = 50
-    window_size = 5
+    final_step = int(os.getenv("MULTISHOT_FINAL_STEP", "50"))
+    window_size = int(os.getenv("MULTISHOT_DENOISE_WINDOW", "5"))
 
     current_step = 0
     denoise_state = None
@@ -728,7 +819,7 @@ def _fake_diffusion_first_frame(
 
         if face_state is None:#尚未清晰时
             # 人脸状态尚未初始化时，所有去噪都等价于不注入：lambda=0。
-            denoise_state = _fake_denoise_window(
+            denoise_state = _denoise_window(
                 generation_state,
                 current_step,
                 next_step,
@@ -750,7 +841,8 @@ def _fake_diffusion_first_frame(
                 denoise_log.append(record)
                 continue
 
-            x0_result = _fake_estimate_x0_preview(
+            x0_result = _estimate_x0_preview(
+                generation_state,
                 denoise_state,
                 str(frame_path.with_suffix(f".step_{current_step}.x0.png")),
             )
@@ -803,15 +895,15 @@ def _fake_diffusion_first_frame(
 
     _save_injection_memory(injection_memory)
 
-    final_frame_path = _fake_decode_final_image(denoise_state, str(frame_path))
+    final_frame_path = _decode_final_image(generation_state, denoise_state, str(frame_path))
     frame_path.with_suffix(".prompt.txt").write_text(first_frame_prompt, encoding="utf-8")
     log_path = frame_path.with_suffix(".denoise_log.json")
-    log_path.write_text(json.dumps(denoise_log, ensure_ascii=False, indent=2), encoding="utf-8")
+    log_path.write_text(json.dumps(_json_safe(denoise_log), ensure_ascii=False, indent=2), encoding="utf-8")
 
     return {
         "frame_path": final_frame_path,
         "denoise_log_path": str(log_path),
-        "denoise_log": denoise_log,
+        "denoise_log": _json_safe(denoise_log),
     }
 
 
@@ -821,7 +913,7 @@ def generate_shot_first_frame(
     subscript_id: str,
     character_ids: list[str],
     first_frame_prompt: str,
-    generation_model: str = "pseudo_diffusion_v1",
+    generation_model: str = "segmind/tiny-sd",
 ):
     """生成单个 shot 的首帧。
 

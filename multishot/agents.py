@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import sys
 from pathlib import Path
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -10,17 +12,17 @@ from .mcp_asset_server import PROJECT_DIR_ENV
 from .prompts import ASSET_GENERATION_PROMPT, SCRIPT_PLANNING_PROMPT
 
 # 这里使用阿里云 DashScope 的 OpenAI 兼容接口。
-# API key 先留空，后续可以改成从环境变量读取。
-QWEN_API_KEY = ""
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-QWEN_MODEL = "qwen-plus"
+# API key 从环境变量 DASHSCOPE_API_KEY 读取，避免写进代码仓库。
+QWEN_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
+QWEN_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+QWEN_MODEL = os.getenv("MULTISHOT_QWEN_MODEL", "qwen3-vl-plus")
 
 
 def build_qwen_model():
     """构建 LangChain 版本的 Qwen chat model。
 
     ChatOpenAI 是 LangChain 的 OpenAI-compatible wrapper。
-    由于 Qwen 提供 OpenAI 兼容接口，所以这里实际调用的是 qwen-plus。
+    由于 Qwen 提供 OpenAI 兼容接口，所以这里实际调用的是 Qwen 模型。
     """
 
     return ChatOpenAI(
@@ -112,7 +114,7 @@ class AssetGenerationAgent:
         # project_dir 通过环境变量注入给 server，避免暴露成模型工具参数。
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
-                "command": "python",
+                "command": sys.executable,
                 "args": ["-m", "multishot.mcp_asset_server"],#当前程序会启动一个新的 Python 子进程，运行：multishot/mcp_asset_server.py
                 "transport": "stdio",
                 "env": {PROJECT_DIR_ENV: str(project_dir)},
@@ -175,7 +177,7 @@ class Face3DModelingAgent:
 
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
-                "command": "python",
+                "command": sys.executable,
                 "args": ["-m", "multishot.mcp_asset_server"],
                 "transport": "stdio",
                 "env": {PROJECT_DIR_ENV: str(project_dir)},
@@ -218,11 +220,11 @@ class ShotFirstFrameAgent:
 
     async def arun(self, state: dict):
         project_dir = Path(state["project_dir"])
-        generation_model = state.get("generation_model", "pseudo_diffusion_v1")
+        generation_model = state.get("generation_model", "segmind/tiny-sd")
 
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
-                "command": "python",
+                "command": sys.executable,
                 "args": ["-m", "multishot.mcp_asset_server"],
                 "transport": "stdio",
                 "env": {PROJECT_DIR_ENV: str(project_dir)},
