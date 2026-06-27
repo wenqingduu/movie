@@ -913,7 +913,7 @@ def generate_shot_first_frame(
     subscript_id: str,
     character_ids: list[str],
     first_frame_prompt: str,
-    generation_model: str = "segmind/tiny-sd",
+    generation_model: str = "dreamshaper-8",
 ):
     """生成单个 shot 的首帧。
 

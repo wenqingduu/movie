@@ -3,8 +3,25 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_NAME = "segmind/tiny-sd"
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "diffusion" / "segmind-tiny-sd"
+DEFAULT_MODEL_NAME = "dreamshaper-8"
+
+MODEL_CONFIGS = {
+    "dreamshaper-8": {
+        "repo_id": "Lykon/dreamshaper-8",
+        "path": PROJECT_ROOT / "models" / "diffusion" / "dreamshaper-8",
+        "variant": "fp16",
+    },
+    "Lykon/dreamshaper-8": {
+        "repo_id": "Lykon/dreamshaper-8",
+        "path": PROJECT_ROOT / "models" / "diffusion" / "dreamshaper-8",
+        "variant": "fp16",
+    },
+    "segmind/tiny-sd": {
+        "repo_id": "segmind/tiny-sd",
+        "path": PROJECT_ROOT / "models" / "diffusion" / "segmind-tiny-sd",
+        "variant": None,
+    },
+}
 
 
 class OpenSourceDiffusionBackend:
@@ -22,9 +39,11 @@ class OpenSourceDiffusionBackend:
 
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME):
         self.model_name = model_name
-        self.model_path = Path(os.getenv("MULTISHOT_DIFFUSION_MODEL_PATH", DEFAULT_MODEL_PATH))
-        self.height = int(os.getenv("MULTISHOT_IMAGE_HEIGHT", "256"))
-        self.width = int(os.getenv("MULTISHOT_IMAGE_WIDTH", "256"))
+        model_config = MODEL_CONFIGS.get(model_name, MODEL_CONFIGS[DEFAULT_MODEL_NAME])
+        self.model_path = Path(os.getenv("MULTISHOT_DIFFUSION_MODEL_PATH", model_config["path"]))
+        self.variant = os.getenv("MULTISHOT_DIFFUSION_VARIANT", model_config.get("variant") or "") or None
+        self.height = int(os.getenv("MULTISHOT_IMAGE_HEIGHT", "512"))
+        self.width = int(os.getenv("MULTISHOT_IMAGE_WIDTH", "512"))
         self.default_steps = int(os.getenv("MULTISHOT_DIFFUSION_STEPS", "50"))
         self.guidance_scale = float(os.getenv("MULTISHOT_GUIDANCE_SCALE", "7.5"))
         self.negative_prompt = os.getenv(
@@ -54,12 +73,19 @@ class OpenSourceDiffusionBackend:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float16 if self.device == "cuda" else torch.float32
 
+        load_kwargs = {
+            "torch_dtype": self.dtype,
+            "safety_checker": None,
+            "requires_safety_checker": False,
+            "local_files_only": True,
+        }
+        if self.variant:
+            load_kwargs["variant"] = self.variant
+            load_kwargs["use_safetensors"] = True
+
         pipe = StableDiffusionPipeline.from_pretrained(
             self.model_path,
-            torch_dtype=self.dtype,
-            safety_checker=None,
-            requires_safety_checker=False,
-            local_files_only=True,
+            **load_kwargs,
         )
 
         # DDIM 的 x0 反解公式更直接，适合做中间预览和实验日志。
@@ -268,8 +294,9 @@ _BACKENDS: dict[str, OpenSourceDiffusionBackend] = {}
 def get_diffusion_backend(model_name: str | None = None):
     """按模型名获取后端实例。
 
-    目前先把 segmind/tiny-sd 作为默认开源模型。后续要接 SD1.5/SDXL，
-    可以通过 MULTISHOT_DIFFUSION_MODEL_PATH 指向新的 diffusers 模型目录。
+    默认使用 DreamShaper 8。tiny-sd 仍可作为快速 smoke test。
+    如果要接其他 SD1.5/SDXL 模型，可以通过 MULTISHOT_DIFFUSION_MODEL_PATH
+    指向新的 diffusers 模型目录。
     """
 
     model_name = model_name or DEFAULT_MODEL_NAME

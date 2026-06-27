@@ -239,7 +239,7 @@ class ShotFirstFrameAgent:
 
     async def arun(self, state: dict):
         project_dir = Path(state["project_dir"])
-        generation_model = state.get("generation_model", "segmind/tiny-sd")
+        generation_model = state.get("generation_model", "dreamshaper-8")
 
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
