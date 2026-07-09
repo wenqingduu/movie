@@ -1,0 +1,55 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments and local config
+.venv/
+venv/
+env/
+*.env
+.env*
+
+# Generated outputs and experiment artifacts
+/outputs/
+/tep/
+/pretest/one_sample_outputs/
+pretest/*_report.json
+pretest/*_summary.json
+benchmarks/**/download_summary.json
+
+# Local model weights and downloaded checkpoints
+/models/
+third_party/**/checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.engine
+
+# Third-party sample data and non-code assets
+third_party/FaceLift/data_sample/
+third_party/StoryDiffusion/fonts/
+
+# Generated media and large binary assets
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.mov
+*.avi
+*.ply
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+.DS_Store
