@@ -36,6 +36,9 @@ third_party/**/checkpoints/
 # Third-party sample data and non-code assets
 third_party/FaceLift/data_sample/
 third_party/StoryDiffusion/fonts/
+third_party/PuLID/example_inputs/
+third_party/PuLID/models/
+third_party/PuLID/outputs/
 
 # Generated media and large binary assets
 *.png
@@ -47,6 +50,7 @@ third_party/StoryDiffusion/fonts/
 *.mov
 *.avi
 *.ply
+*.gz
 
 # Logs and temporary files
 *.log

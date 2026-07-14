@@ -293,6 +293,140 @@ class ReferenceSelfAttentionController:
         )
         return mask.squeeze(-1)
 
+    def part_guided_enabled(self):
+        return os.getenv("MULTISHOT_ATTENTION_MASK_MODE", "face").strip().lower() in {
+            "part",
+            "parts",
+            "part_guided",
+        }
+
+    def part_names(self):
+        value = os.getenv("MULTISHOT_ATTENTION_PARTS", "eyes,nose,mouth")
+        parts = [item.strip().lower() for item in value.split(",") if item.strip()]
+        allowed = {"eyes", "nose", "mouth", "face"}
+        return [part for part in parts if part in allowed] or ["eyes", "nose", "mouth"]
+
+    @staticmethod
+    def _part_bbox_from_face_bbox(bbox, part: str, image_width: int, image_height: int):
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+        x1, y1 = max(0.0, x1), max(0.0, y1)
+        x2, y2 = min(float(image_width), x2), min(float(image_height), y2)
+        w = max(1.0, x2 - x1)
+        h = max(1.0, y2 - y1)
+        if part == "eyes":
+            return [
+                x1 + 0.08 * w,
+                y1 + 0.16 * h,
+                x2 - 0.08 * w,
+                y1 + 0.44 * h,
+            ]
+        if part == "nose":
+            return [
+                x1 + 0.25 * w,
+                y1 + 0.30 * h,
+                x2 - 0.25 * w,
+                y1 + 0.68 * h,
+            ]
+        if part == "mouth":
+            return [
+                x1 + 0.18 * w,
+                y1 + 0.58 * h,
+                x2 - 0.18 * w,
+                y1 + 0.86 * h,
+            ]
+        return [x1, y1, x2, y2]
+
+    def target_part_query_mask(self, part: str, sequence_length: int, batch_size: int, dtype, device, height: int | None, width: int | None):
+        return self._token_part_mask(
+            part=part,
+            bbox_field="face_bbox",
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            dtype=dtype,
+            device=device,
+            height=height,
+            width=width,
+            cache_prefix="target_part",
+        )
+
+    def reference_part_key_mask(self, part: str, sequence_length: int, batch_size: int, dtype, device, height: int | None, width: int | None):
+        mask = self._token_part_mask(
+            part=part,
+            bbox_field="reference_face_bbox",
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            dtype=dtype,
+            device=device,
+            height=height,
+            width=width,
+            cache_prefix="reference_part",
+        )
+        return mask.squeeze(-1)
+
+    def _token_part_mask(
+        self,
+        part: str,
+        bbox_field: str,
+        sequence_length: int,
+        batch_size: int,
+        dtype,
+        device,
+        height: int | None,
+        width: int | None,
+        cache_prefix: str,
+    ):
+        cache_key = (cache_prefix, part, bbox_field, sequence_length, batch_size, str(dtype), str(device), height, width)
+        if cache_key in self._mask_cache:
+            return self._mask_cache[cache_key]
+
+        from PIL import Image, ImageDraw, ImageFilter
+        import torch
+
+        if height is None or width is None:
+            side = int(sequence_length ** 0.5)
+            if side * side != sequence_length:
+                mask = torch.ones((batch_size, sequence_length, 1), device=device, dtype=dtype)
+                self._mask_cache[cache_key] = mask
+                return mask
+            height = side
+            width = side
+
+        full_mask = Image.new("L", (self.image_width, self.image_height), 0)
+        for target in self.targets:
+            bbox = target.get(bbox_field)
+            if not bbox:
+                bbox = [
+                    int(self.image_width * 0.35),
+                    int(self.image_height * 0.18),
+                    int(self.image_width * 0.65),
+                    int(self.image_height * 0.58),
+                ]
+            x1, y1, x2, y2 = self._part_bbox_from_face_bbox(
+                bbox,
+                part,
+                self.image_width,
+                self.image_height,
+            )
+            mask_image = Image.new("L", (self.image_width, self.image_height), 0)
+            draw = ImageDraw.Draw(mask_image)
+            shape = [int(round(v)) for v in [x1, y1, x2, y2]]
+            if part == "face":
+                draw.ellipse(shape, fill=255)
+            else:
+                draw.rounded_rectangle(shape, radius=max(2, int((shape[2] - shape[0]) * 0.18)), fill=255)
+            full_mask = Image.composite(Image.new("L", full_mask.size, 255), full_mask, mask_image)
+
+        blur = max(1, self.image_width // 260)
+        full_mask = full_mask.filter(ImageFilter.GaussianBlur(radius=blur))
+        token_mask = full_mask.resize((width, height))
+        values = torch.tensor(list(token_mask.getdata()), device=device, dtype=dtype).view(1, height * width, 1) / 255.0
+        values = values.clamp(0, 1)
+        if height * width != sequence_length:
+            values = torch.ones((1, sequence_length, 1), device=device, dtype=dtype)
+        mask = values.repeat(batch_size, 1, 1)
+        self._mask_cache[cache_key] = mask
+        return mask
+
     def _token_mask(
         self,
         mask_field: str,
@@ -435,37 +569,106 @@ class ReferenceSelfAttnProcessor:
             k_ref = key[ref_slice]
             v_ref = value[ref_slice]
 
-            ref_mask = self.controller.reference_key_mask(
-                sequence_length=sequence_length,
-                batch_size=source_batch,
-                dtype=query.dtype,
-                device=query.device,
-                height=height,
-                width=width,
-            )
-            # PyTorch SDPA 的 float mask 是加到 attention logits 上的；非脸 token 给大负数。
-            ref_attn_mask = (1.0 - ref_mask).view(source_batch, 1, 1, sequence_length) * -10000.0
-            ref_output = F.scaled_dot_product_attention(
-                q_target,
-                k_ref,
-                v_ref,
-                attn_mask=ref_attn_mask,
-                dropout_p=0.0,
-                is_causal=False,
-            )
-
-            target_mask_raw = self.controller.target_query_mask(
-                sequence_length=sequence_length,
-                batch_size=target_batch,
-                dtype=query.dtype,
-                device=query.device,
-                height=height,
-                width=width,
-            )
-            target_mask = target_mask_raw.view(target_batch, 1, sequence_length, 1)
-            alpha = target_mask * self.controller.strength
             output = output.clone()
-            output[target_slice] = self_output[target_slice] * (1 - alpha) + ref_output * alpha
+            part_stats = []
+            if self.controller.part_guided_enabled():
+                target_combined = None
+                reference_combined = None
+                target_current = output[target_slice]
+                for part in self.controller.part_names():
+                    part_ref_mask = self.controller.reference_part_key_mask(
+                        part=part,
+                        sequence_length=sequence_length,
+                        batch_size=source_batch,
+                        dtype=query.dtype,
+                        device=query.device,
+                        height=height,
+                        width=width,
+                    )
+                    part_target_mask_raw = self.controller.target_part_query_mask(
+                        part=part,
+                        sequence_length=sequence_length,
+                        batch_size=target_batch,
+                        dtype=query.dtype,
+                        device=query.device,
+                        height=height,
+                        width=width,
+                    )
+                    if int((part_ref_mask[0, :] > 0.05).sum().item()) <= 0:
+                        continue
+                    if int((part_target_mask_raw[0, :, 0] > 0.05).sum().item()) <= 0:
+                        continue
+                    part_ref_attn_mask = (1.0 - part_ref_mask).view(source_batch, 1, 1, sequence_length) * -10000.0
+                    part_ref_output = F.scaled_dot_product_attention(
+                        q_target,
+                        k_ref,
+                        v_ref,
+                        attn_mask=part_ref_attn_mask,
+                        dropout_p=0.0,
+                        is_causal=False,
+                    )
+                    part_target_mask = part_target_mask_raw.view(target_batch, 1, sequence_length, 1)
+                    alpha = part_target_mask * self.controller.strength
+                    target_current = target_current * (1 - alpha) + part_ref_output * alpha
+                    target_combined = part_target_mask_raw if target_combined is None else torch.maximum(target_combined, part_target_mask_raw)
+                    reference_combined = part_ref_mask if reference_combined is None else torch.maximum(reference_combined, part_ref_mask)
+                    part_stats.append({
+                        "part": part,
+                        "target_tokens": int((part_target_mask_raw[0, :, 0] > 0.05).sum().item()),
+                        "reference_tokens": int((part_ref_mask[0, :] > 0.05).sum().item()),
+                    })
+                output[target_slice] = target_current
+                if target_combined is None:
+                    target_mask_raw = self.controller.target_query_mask(
+                        sequence_length=sequence_length,
+                        batch_size=target_batch,
+                        dtype=query.dtype,
+                        device=query.device,
+                        height=height,
+                        width=width,
+                    )
+                    ref_mask = self.controller.reference_key_mask(
+                        sequence_length=sequence_length,
+                        batch_size=source_batch,
+                        dtype=query.dtype,
+                        device=query.device,
+                        height=height,
+                        width=width,
+                    )
+                else:
+                    target_mask_raw = target_combined
+                    ref_mask = reference_combined
+            else:
+                ref_mask = self.controller.reference_key_mask(
+                    sequence_length=sequence_length,
+                    batch_size=source_batch,
+                    dtype=query.dtype,
+                    device=query.device,
+                    height=height,
+                    width=width,
+                )
+                # PyTorch SDPA 的 float mask 是加到 attention logits 上的；非脸 token 给大负数。
+                ref_attn_mask = (1.0 - ref_mask).view(source_batch, 1, 1, sequence_length) * -10000.0
+                ref_output = F.scaled_dot_product_attention(
+                    q_target,
+                    k_ref,
+                    v_ref,
+                    attn_mask=ref_attn_mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+                target_mask_raw = self.controller.target_query_mask(
+                    sequence_length=sequence_length,
+                    batch_size=target_batch,
+                    dtype=query.dtype,
+                    device=query.device,
+                    height=height,
+                    width=width,
+                )
+                target_mask = target_mask_raw.view(target_batch, 1, sequence_length, 1)
+                alpha = target_mask * self.controller.strength
+                output[target_slice] = self_output[target_slice] * (1 - alpha) + ref_output * alpha
 
             target_tokens = int((target_mask_raw[0, :, 0] > 0.05).sum().item())
             reference_tokens = int((ref_mask[0, :] > 0.05).sum().item())
@@ -475,6 +678,7 @@ class ReferenceSelfAttnProcessor:
                 q_dbg = q_target[debug_batch].float()
                 k_dbg = k_ref[debug_batch].float()
                 logits = torch.matmul(q_dbg, k_dbg.transpose(-1, -2)) * (head_dim ** -0.5)
+                ref_attn_mask = (1.0 - ref_mask).view(source_batch, 1, 1, sequence_length) * -10000.0
                 logits = logits + ref_attn_mask[debug_batch].float()
                 probs = logits.softmax(dim=-1)
                 query_weights = target_mask_raw[debug_batch, :, 0].float()
@@ -502,6 +706,12 @@ class ReferenceSelfAttnProcessor:
                 target_token_count=target_tokens,
                 reference_token_count=reference_tokens,
             )
+            if self.controller.layer_stats:
+                self.controller.layer_stats[-1]["mask_mode"] = (
+                    "part_guided" if self.controller.part_guided_enabled() else "face"
+                )
+                if part_stats:
+                    self.controller.layer_stats[-1]["part_stats"] = part_stats
             if debug_map and self.controller.layer_stats:
                 self.controller.layer_stats[-1]["attention_debug"] = debug_map
 
@@ -556,6 +766,8 @@ class OpenSourceDiffusionBackend:
         self._torch = None
         self._reference_latent_cache = {}
         self._reference_noise_cache = {}
+        self._reference_renoise_cache = {}
+        self._ip_adapter_reference_embed_cache = {}
         self._attention_controller = None
         self._denoise_lock = threading.Lock()
         self.device = None
@@ -698,6 +910,106 @@ class OpenSourceDiffusionBackend:
             )
         return self._reference_noise_cache[cache_key]
 
+    def _reference_renoise_prompt(self):
+        return os.getenv(
+            "MULTISHOT_RENOISE_REFERENCE_PROMPT",
+            (
+                "side profile portrait of a middle-aged Asian man with metal-framed glasses, "
+                "short black hair, clean white background, studio portrait lighting, "
+                "realistic face, sharp facial features"
+            ),
+        )
+
+    def _reference_renoise_trajectory(self, reference_image: str, runtime: dict):
+        """用 ReNoise inversion 为参考脸预计算同一 scheduler 上的 x_t 轨迹。"""
+
+        if self.pipeline_type != "sdxl":
+            raise RuntimeError("ReNoise reference trajectory is only wired for SDXL pipelines")
+
+        renoise_root = Path(os.getenv("MULTISHOT_RENOISE_ROOT", "/tmp/ReNoise-Inversion"))
+        if not renoise_root.exists():
+            raise FileNotFoundError(f"ReNoise repo not found: {renoise_root}")
+
+        prompt = self._reference_renoise_prompt()
+        steps = int(runtime.get("total_steps") or len(runtime.get("timesteps", [])) or self.default_steps)
+        renoise_steps = int(os.getenv("MULTISHOT_RENOISE_STEPS", "1"))
+        guidance_scale = float(os.getenv("MULTISHOT_RENOISE_GUIDANCE_SCALE", "0.0"))
+        seed = int(os.getenv("MULTISHOT_RENOISE_SEED", os.getenv("MULTISHOT_DIFFUSION_SEED", "42")))
+        cache_key = (
+            reference_image,
+            prompt,
+            steps,
+            renoise_steps,
+            guidance_scale,
+            seed,
+            self.width,
+            self.height,
+            str(self.dtype),
+            self.device,
+        )
+        if cache_key in self._reference_renoise_cache:
+            return self._reference_renoise_cache[cache_key]
+
+        import sys
+        from PIL import Image
+
+        if str(renoise_root) not in sys.path:
+            sys.path.insert(0, str(renoise_root))
+        from src.config import RunConfig
+        from src.eunms import Model_Type, Scheduler_Type
+        from src.pipes.sdxl_inversion_pipeline import SDXLDDIMPipeline
+        from src.schedulers.ddim_scheduler import MyDDIMScheduler
+
+        pipe = self._load()
+        torch = self._torch
+        reference = Image.open(reference_image).convert("RGB").resize((self.width, self.height))
+        inversion_pipe = SDXLDDIMPipeline(**pipe.components)
+        inversion_pipe.scheduler = MyDDIMScheduler.from_config(pipe.scheduler.config)
+        inversion_pipe.cfg = RunConfig(
+            model_type=Model_Type.SDXL,
+            scheduler_type=Scheduler_Type.DDIM,
+            seed=seed,
+            num_inference_steps=steps,
+            num_inversion_steps=steps,
+            guidance_scale=guidance_scale,
+            num_renoise_steps=renoise_steps,
+            perform_noise_correction=False,
+            noise_regularization_num_reg_steps=0,
+        )
+        inversion_pipe.set_progress_bar_config(disable=True)
+
+        generator_device = self.device if self.device == "cuda" else "cpu"
+        generator = torch.Generator(device=generator_device).manual_seed(seed)
+        with torch.no_grad():
+            _, all_latents = inversion_pipe(
+                prompt=prompt,
+                image=reference,
+                ip_adapter_image=reference if self.ip_adapter_enabled else None,
+                num_inversion_steps=steps,
+                num_inference_steps=steps,
+                generator=generator,
+                guidance_scale=guidance_scale,
+                strength=1.0,
+                denoising_start=0.0,
+                num_renoise_steps=renoise_steps,
+            )
+        trajectory = [latent.detach().to(device=self.device, dtype=self.dtype) for latent in all_latents]
+        self._reference_renoise_cache[cache_key] = trajectory
+        return trajectory
+
+    def _reference_xt_for_attention(self, reference_image: str, reference_latents, runtime: dict, step_index: int, timestep):
+        """返回当前 denoise step 对应的参考脸 x_t。"""
+
+        source = os.getenv("MULTISHOT_REFERENCE_TRAJECTORY", "add_noise").strip().lower()
+        if source == "renoise":
+            trajectory = self._reference_renoise_trajectory(reference_image, runtime)
+            trajectory_index = max(0, min(len(trajectory) - 1, len(trajectory) - 1 - step_index))
+            return trajectory[trajectory_index], f"renoise:{trajectory_index}"
+
+        pipe = self._load()
+        reference_noise = self._reference_noise_for_attention(reference_image, reference_latents)
+        return pipe.scheduler.add_noise(reference_latents, reference_noise, timestep), "add_noise"
+
     def _duplicate_conditioning_for_reference(self, runtime: dict):
         """把 target 的文本条件复制一份给 reference batch。"""
 
@@ -713,6 +1025,121 @@ class OpenSourceDiffusionBackend:
             else:
                 duplicated[key] = torch.cat([value, value], dim=0)
         return prompt_embeds, duplicated
+
+    def _clone_added_cond_kwargs(self, added_cond_kwargs):
+        torch = self._torch
+        if added_cond_kwargs is None:
+            return None
+        cloned = {}
+        for key, value in added_cond_kwargs.items():
+            if isinstance(value, list):
+                cloned[key] = [item.detach().clone() if torch.is_tensor(item) else item for item in value]
+            elif isinstance(value, tuple):
+                cloned[key] = tuple(item.detach().clone() if torch.is_tensor(item) else item for item in value)
+            elif torch.is_tensor(value):
+                cloned[key] = value.detach().clone()
+            else:
+                cloned[key] = value
+        return cloned
+
+    def _ip_adapter_reference_target(self, injection_plan: dict):
+        """取动态 IP-Adapter 要用的参考图。
+
+        默认用 reference_source_image，也就是干净 3D render；self-attention 仍使用
+        reference_image 这个 match_target_scale 版本。
+        """
+
+        source_key = os.getenv("MULTISHOT_DYNAMIC_IP_ADAPTER_SOURCE", "reference_source_image")
+        for target in injection_plan.get("targets", []):
+            reference_image = target.get(source_key) or target.get("reference_view_image") or target.get("reference_image")
+            if not reference_image:
+                continue
+            reference_path = Path(reference_image)
+            if not reference_path.is_absolute():
+                reference_path = PROJECT_ROOT / reference_path
+            if reference_path.exists():
+                return str(reference_path), source_key
+        return None, source_key
+
+    def _ip_adapter_reference_embeds(self, reference_image: str, do_cfg: bool):
+        pipe = self._load()
+        cache_key = (reference_image, do_cfg, self.device, str(self.dtype))
+        if cache_key in self._ip_adapter_reference_embed_cache:
+            return self._ip_adapter_reference_embed_cache[cache_key]
+
+        from PIL import Image
+
+        image = Image.open(reference_image).convert("RGB")
+        embeds = pipe.prepare_ip_adapter_image_embeds(
+            ip_adapter_image=[image],
+            ip_adapter_image_embeds=None,
+            device=self.device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=do_cfg,
+        )
+        self._ip_adapter_reference_embed_cache[cache_key] = embeds
+        return embeds
+
+    def _blend_ip_adapter_embeds(self, original, reference, strength: float):
+        torch = self._torch
+        if isinstance(original, list) and isinstance(reference, list):
+            return [
+                self._blend_ip_adapter_embeds(orig_item, ref_item, strength)
+                for orig_item, ref_item in zip(original, reference)
+            ]
+        if isinstance(original, tuple) and isinstance(reference, tuple):
+            return tuple(
+                self._blend_ip_adapter_embeds(orig_item, ref_item, strength)
+                for orig_item, ref_item in zip(original, reference)
+            )
+        if torch.is_tensor(original) and torch.is_tensor(reference):
+            reference = reference.to(device=original.device, dtype=original.dtype)
+            return original * (1.0 - strength) + reference * strength
+        return reference
+
+    def _apply_dynamic_ip_adapter_reference(self, added_cond_kwargs, runtime: dict, injection_plan: dict, step_index: int):
+        """在当前窗口把 IP-Adapter 图像条件换/混成检索视角参考脸。"""
+
+        if os.getenv("MULTISHOT_DYNAMIC_IP_ADAPTER_REFERENCE", "0") != "1":
+            return added_cond_kwargs, None
+        if not self.ip_adapter_enabled or not added_cond_kwargs or "image_embeds" not in added_cond_kwargs:
+            return added_cond_kwargs, None
+        injection_lambda = float(injection_plan.get("lambda", 0.0) or 0.0)
+        targets = injection_plan.get("targets", [])
+        if injection_lambda <= 0 or not targets:
+            return added_cond_kwargs, None
+
+        reference_image, source_key = self._ip_adapter_reference_target(injection_plan)
+        if not reference_image:
+            return added_cond_kwargs, {
+                "step_index": step_index,
+                "mode": "dynamic_ip_adapter_reference",
+                "status": "skipped",
+                "reason": "reference image not found",
+            }
+
+        scale = float(os.getenv("MULTISHOT_DYNAMIC_IP_ADAPTER_SCALE", "1.0"))
+        strength = max(0.0, min(1.0, injection_lambda * scale))
+        if strength <= 0:
+            return added_cond_kwargs, None
+
+        updated = self._clone_added_cond_kwargs(added_cond_kwargs)
+        reference_embeds = self._ip_adapter_reference_embeds(reference_image, runtime["do_classifier_free_guidance"])
+        updated["image_embeds"] = self._blend_ip_adapter_embeds(
+            updated["image_embeds"],
+            reference_embeds,
+            strength,
+        )
+        return updated, {
+            "step_index": step_index,
+            "mode": "dynamic_ip_adapter_reference",
+            "reference_image": reference_image,
+            "reference_source_key": source_key,
+            "lambda": injection_lambda,
+            "effective_strength": round(strength, 4),
+            "target_count": len(targets),
+            "status": "applied",
+        }
 
     def generate_image(self, prompt: str, output_path: str, steps: int = 30):
         """直接用开源 diffusion pipeline 生成一张图片。"""
@@ -877,14 +1304,30 @@ class OpenSourceDiffusionBackend:
                 if use_mutual_attention:
                     reference_latents, reference_image = self._reference_latents_for_attention(injection_plan)
                     if reference_latents is not None:
-                        reference_noise = self._reference_noise_for_attention(reference_image, reference_latents)
-                        reference_xt = pipe.scheduler.add_noise(reference_latents, reference_noise, timestep)
+                        target_added_cond_kwargs = self._clone_added_cond_kwargs(runtime.get("added_cond_kwargs"))
+                        target_added_cond_kwargs, dynamic_ip_log = self._apply_dynamic_ip_adapter_reference(
+                            target_added_cond_kwargs,
+                            runtime,
+                            injection_plan,
+                            step_index,
+                        )
+                        if dynamic_ip_log:
+                            step_injections.append(dynamic_ip_log)
+                        reference_xt, reference_xt_source = self._reference_xt_for_attention(
+                            reference_image,
+                            reference_latents,
+                            runtime,
+                            step_index,
+                            timestep,
+                        )
                         source_batch_size = target_model_input.shape[0]
                         if reference_xt.shape[0] != source_batch_size:
                             reference_xt = reference_xt.repeat(source_batch_size, 1, 1, 1)
                         reference_model_input = pipe.scheduler.scale_model_input(reference_xt, timestep)
                         model_input = torch.cat([reference_model_input, target_model_input], dim=0)
-                        prompt_embeds, added_cond_kwargs = self._duplicate_conditioning_for_reference(runtime)
+                        target_runtime = dict(runtime)
+                        target_runtime["added_cond_kwargs"] = target_added_cond_kwargs
+                        prompt_embeds, added_cond_kwargs = self._duplicate_conditioning_for_reference(target_runtime)
                         strength = self._reference_attention_strength(injection_plan)
                         debug_prefix = None
                         if os.getenv("MULTISHOT_ATTENTION_DEBUG", "0") == "1":
@@ -903,6 +1346,7 @@ class OpenSourceDiffusionBackend:
                             "step_index": step_index,
                             "mode": "masked_mutual_self_attention",
                             "reference_image": reference_image,
+                            "reference_xt_source": reference_xt_source,
                             "lambda": float(injection_plan.get("lambda", 0.0) or 0.0),
                             "effective_strength": round(strength, 4),
                             "target_count": len(injection_plan.get("targets", [])),
@@ -910,6 +1354,8 @@ class OpenSourceDiffusionBackend:
                                 self._attention_controller.start_layer,
                                 self._attention_controller.end_layer,
                             ],
+                            "attention_mask_mode": os.getenv("MULTISHOT_ATTENTION_MASK_MODE", "face"),
+                            "attention_parts": os.getenv("MULTISHOT_ATTENTION_PARTS", "eyes,nose,mouth"),
                             "status": "applied",
                         })
                     else:
@@ -926,7 +1372,15 @@ class OpenSourceDiffusionBackend:
                 else:
                     model_input = target_model_input
                     prompt_embeds = runtime["prompt_embeds"]
-                    added_cond_kwargs = runtime.get("added_cond_kwargs")
+                    added_cond_kwargs = self._clone_added_cond_kwargs(runtime.get("added_cond_kwargs"))
+                    added_cond_kwargs, dynamic_ip_log = self._apply_dynamic_ip_adapter_reference(
+                        added_cond_kwargs,
+                        runtime,
+                        injection_plan,
+                        step_index,
+                    )
+                    if dynamic_ip_log:
+                        step_injections.append(dynamic_ip_log)
                     self._attention_controller.stop()
 
                 with torch.no_grad():

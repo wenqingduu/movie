@@ -241,7 +241,7 @@ def _fixed_exploration_lambdas(candidate_count: int):
 
     mu = float(os.getenv("MULTISHOT_FIXED_EXPLORATION_MU", "0.5"))
     sigma = float(os.getenv("MULTISHOT_FIXED_EXPLORATION_SIGMA", "0.2"))
-    high_points = _parse_lambda_list(os.getenv("MULTISHOT_FIXED_HIGH_LAMBDAS", "0.75,0.85,0.95"))
+    high_points = _parse_lambda_list(os.getenv("MULTISHOT_FIXED_HIGH_LAMBDAS", "0.95,1.0"))
     high_points = high_points[:candidate_count]
     sampled_count = max(0, candidate_count - len(high_points))
     return _sample_truncated_normal(mu, sigma, sampled_count) + high_points
@@ -1388,7 +1388,7 @@ def _rollout_injection_window(
     memory_key = f"{generation_state['generation_model']}:{stage}:drift_{drift_bucket}"
     memory_record = memory.get(memory_key, _initial_memory_record())
 
-    candidate_count = int(os.getenv("MULTISHOT_ROLLOUT_CANDIDATES", "10"))
+    candidate_count = int(os.getenv("MULTISHOT_ROLLOUT_CANDIDATES", "2"))
     topk = int(os.getenv("MULTISHOT_ROLLOUT_TOPK", "3"))
     min_improvement = float(os.getenv("MULTISHOT_MIN_DRIFT_IMPROVEMENT", "0.01"))
     sampling_strategy = os.getenv("MULTISHOT_ROLLOUT_SAMPLING_STRATEGY", "memory").strip()
@@ -1583,9 +1583,10 @@ def _diffusion_first_frame(
             }
 
             # 早期阶段先不判断人脸清晰度，让模型自然形成主体结构。
-            if current_step < 30:
+            face_clear_min_step = int(os.getenv("MULTISHOT_FACE_CLEAR_MIN_STEP", "30"))
+            if current_step < face_clear_min_step:
                 record["next_action"] = "continue_denoising_without_face_check"
-                record["reason"] = "early denoising stage, face may be unstable"
+                record["reason"] = f"step {current_step} is earlier than MULTISHOT_FACE_CLEAR_MIN_STEP={face_clear_min_step}"
                 denoise_log.append(record)
                 continue
 
