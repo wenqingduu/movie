@@ -1,0 +1,37 @@
+{
+  "source_face_bbox": [
+    169,
+    164,
+    330,
+    393
+  ],
+  "source_crop_bbox": [
+    94,
+    123,
+    405,
+    434
+  ],
+  "target_face_bbox": [
+    154,
+    136,
+    346,
+    406
+  ],
+  "target_paste_bbox": [
+    66,
+    87,
+    434,
+    455
+  ],
+  "scale_x": 1.1832797427652733,
+  "scale_y": 1.1832797427652733,
+  "reference_mode": "facelift_discrete_pose_view",
+  "document_deviation": "Continuous Gaussian rendering is unavailable in the current wrapper; used nearest FaceLift discrete view: front",
+  "selected_discrete_view": "front",
+  "target_pitch_yaw_roll": [
+    -4.991758823394775,
+    1.3447462320327759,
+    -2.350879192352295
+  ],
+  "selection_threshold_degrees": 18.0
+}
