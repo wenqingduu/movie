@@ -1,8 +1,8 @@
 {
   "reference_control_insightface_cosine": 0.8297540229962911,
-  "reference_treatment_insightface_cosine": 0.7775056272394637,
-  "rendered_3d_control_insightface_cosine": 0.6521484560704914,
-  "rendered_3d_treatment_insightface_cosine": 0.9692221286289977,
-  "treatment_minus_control": -0.05224839575682738,
-  "rendered_3d_treatment_minus_control": 0.31707367255850627
+  "reference_treatment_insightface_cosine": 0.7779159684930591,
+  "rendered_3d_control_insightface_cosine": 0.6852635097407823,
+  "rendered_3d_treatment_insightface_cosine": 0.9738759421287725,
+  "treatment_minus_control": -0.05183805450323198,
+  "rendered_3d_treatment_minus_control": 0.28861243238799017
 }

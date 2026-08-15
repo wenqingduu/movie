@@ -7,7 +7,7 @@
 截至 2026-08-16，已在单张 NVIDIA GeForce RTX 4090（48 GB）上完成以下验证：
 
 1. FLUX.1-dev FP8、PuLID-FLUX v0.9.1、本地 T5/CLIP、EVA-CLIP、InsightFace AntelopeV2 可以共同加载并完成 50 步生成。
-2. FaceLift 可以从同一人物参考图生成 3D Gaussian 人脸资产及六视图结果。
+2. FaceLift 可以从同一人物参考图生成 3D Gaussian 人脸资产，并从 `gaussians.ply` 按目标 yaw/pitch/roll 连续渲染。
 3. step 30 的 `pred_x0` 可以检测到可靠人脸并估计姿态。
 4. FaceLift 参考脸可以完成空间对齐、语义 inner-face mask 构建和 FLUX packed-token mask 映射。
 5. step 30～49 的 masked residual injection 已按实验方案运行；Control、0.6 Treatment 和 0.4 Diagnostic 均成功结束，没有 NaN/Inf。
@@ -28,6 +28,12 @@
 - 诊断组注入强度：`0.4`
 - Mask：目标语义 inner-face mask 与对齐后 3D 参考脸语义 mask 的交集，羽化后映射到 packed tokens
 - FaceLift 多视图扩散 smoke 设置：`10` steps
+- 3D 参考模式：`facelift_continuous_gaussian_pose_render`，没有离散视图 fallback
+- 参考布局：`match_target_scale`，比例 `1.0`，保持长宽比并对齐目标脸中心
+
+本轮输入 `experiment_assets/pulid_reference.jpg` 是下载的外部真实照片，不是本项目生成的人物资产；原始 URL 未记录。文件 SHA256 为：
+
+`1d163eb4cc3244e063895263490ee5abc199fe915e6dae9aadbdfb435523644c`
 
 完整参数与模型文件 SHA256 记录在：
 
@@ -38,9 +44,9 @@
 
 | 组别 | 对原始身份参考图的 InsightFace cosine | 对匹配角度 3D 渲染脸的 cosine |
 |---|---:|---:|
-| Control（仅官方 PuLID） | 0.829754 | 0.652148 |
-| Treatment（3D 注入 0.6） | 0.770486 | 0.973024 |
-| Diagnostic（3D 注入 0.4） | 0.777506 | 0.969222 |
+| Control（仅官方 PuLID） | 0.829754 | 0.685264 |
+| Treatment（3D 注入 0.6） | 0.769998 | 0.973062 |
+| Diagnostic（3D 注入 0.4） | 0.777916 | 0.973876 |
 
 Control 在两次独立运行中的 PNG SHA256 都是：
 
@@ -48,11 +54,17 @@ Control 在两次独立运行中的 PNG SHA256 都是：
 
 这证明 0.6 和 0.4 对比使用了相同 seed、prompt 和基础生成轨迹。结果表明插件成功把生成脸拉向 3D 参考，但同时降低了对原始人物照片的身份相似度。
 
-## 已知实现偏差
+## 连续渲染与尺度验证
 
-实验设计优先要求从 Gaussian 资产连续渲染 step-30 的 yaw/pitch/roll。当前 `facelift_backend.py` 只暴露 FaceLift 的离散视图结果，因此本次按方案中的允许回退路径，依据 yaw 选择最近的 `front/left/right` 视图。本次目标 yaw 为 `1.3447°`，实际选择 `front`。
+独立实验已复用项目主实验 `mcp_asset_server.py` 中的连续 Gaussian 渲染函数。step-30 检测姿态与对应相机为：
 
-这不是静默 fallback：`step_30/alignment.json` 和 `config.json` 中均记录了 `facelift_discrete_pose_view` 及偏差说明。
+- InsightFace pose：pitch `-4.9918°`、yaw `1.3447°`、roll `-2.3509°`
+- FaceLift camera：azimuth `268.6553°`、elevation `4.9918°`
+- 目标脸尺寸：`192×270`
+- 缩放后参考脸尺寸：`190×270`
+- reference/target 比例：`[0.9896, 1.0000]`
+
+`step_30/alignment.json` 记录了 PLY 路径、渲染图路径、相机参数、源/目标 bbox、缩放比例与粘贴位置。本轮 `document_deviations` 为空。
 
 ## 代码与结果入口
 
@@ -84,6 +96,8 @@ export PYTHONPATH="$PWD"
 
 .venv/bin/python -m multishot.pulid_flux_inner_face_experiment \
   --reference-image experiment_assets/pulid_reference.jpg \
+  --reference-origin 'downloaded_external_real_photo; original_url_not_recorded' \
+  --no-reference-generated \
   --output-dir experiment_output/pulid_flux_smoke \
   --injection-strength 0.6
 ```
@@ -93,8 +107,8 @@ export PYTHONPATH="$PWD"
 ## 建议的下一步
 
 1. 不要继续简单降低全程固定注入强度；0.4 与 0.6 都出现同类伪影。
-2. 优先实现 Gaussian 连续相机渲染，消除离散视图与目标姿态/透视的不一致。
-3. 对 FaceLift 渲染图先做颜色、曝光和低频统计匹配，再编码参考轨迹。
-4. 缩小 mask 或排除高风险边缘区域，并尝试随 timestep 衰减的注入权重。
-5. 评估只注入中间若干步，而不是从 step 30 一直持续到 step 49。
+2. 对 FaceLift 渲染图先做颜色、曝光和低频统计匹配，再编码参考轨迹。
+3. 缩小 mask 或排除高风险边缘区域，并尝试随 timestep 衰减的注入权重。
+4. 评估只注入中间若干步，而不是从 step 30 一直持续到 step 49。
+5. 用项目自身生成的角色参考图另做一组实验；不要与本轮外部真实照片结果混为同一输入条件。
 6. 每次修改必须保留相同 Control，并同时报告原始身份相似度、3D 相似度和人工自然度检查。

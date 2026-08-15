@@ -1,15 +1,15 @@
 {
   "source_face_bbox": [
-    169,
-    164,
-    330,
-    393
+    343,
+    340,
+    664,
+    796
   ],
   "source_crop_bbox": [
-    94,
-    123,
-    405,
-    434
+    271,
+    237,
+    736,
+    899
   ],
   "target_face_bbox": [
     154,
@@ -18,20 +18,50 @@
     406
   ],
   "target_paste_bbox": [
-    66,
-    87,
-    434,
-    455
+    112,
+    75,
+    387,
+    467
   ],
-  "scale_x": 1.1832797427652733,
-  "scale_y": 1.1832797427652733,
-  "reference_mode": "facelift_discrete_pose_view",
-  "document_deviation": "Continuous Gaussian rendering is unavailable in the current wrapper; used nearest FaceLift discrete view: front",
-  "selected_discrete_view": "front",
+  "face_bbox_on_reference_layout": [
+    155,
+    136,
+    345,
+    406
+  ],
+  "scale_x": 0.5921052631578947,
+  "scale_y": 0.5921052631578947,
+  "reference_face_scale_ratio": 1.0,
+  "reference_to_target_face_scale": [
+    0.9896,
+    1.0
+  ],
+  "target_face_size": [
+    192.0,
+    270.0
+  ],
+  "reference_face_size_on_layout": [
+    190,
+    270
+  ],
+  "layout_mode": "match_target_scale",
+  "reference_mode": "facelift_continuous_gaussian_pose_render",
+  "document_deviation": null,
   "target_pitch_yaw_roll": [
     -4.991758823394775,
     1.3447462320327759,
     -2.350879192352295
   ],
-  "selection_threshold_degrees": 18.0
+  "gaussian_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_smoke/input/facelift/facelift_raw/input/gaussians.ply",
+  "gaussian_render_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_smoke/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_p1p3_pitch_m5p0_roll_m2p4_192x270_250_271.png",
+  "gaussian_render_meta_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_smoke/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_p1p3_pitch_m5p0_roll_m2p4_192x270_250_271.meta.json",
+  "gaussian_camera": {
+    "yaw": 1.3447,
+    "pitch": -4.9918,
+    "roll": -2.3509,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 268.6553,
+    "elevation": 4.9918
+  }
 }

@@ -15,11 +15,12 @@
   "mask_type": "inner_face",
   "fp8": true,
   "reference_image": "/root/autodl-tmp/movie/experiment_assets/pulid_reference.jpg",
-  "reference_mode": "facelift_discrete_pose_view",
+  "reference_image_sha256": "1d163eb4cc3244e063895263490ee5abc199fe915e6dae9aadbdfb435523644c",
+  "reference_image_generated": false,
+  "reference_image_origin": "downloaded_external_real_photo; original_url_not_recorded",
+  "reference_mode": "facelift_continuous_gaussian_pose_render",
   "facelift_step_2d": 10,
-  "document_deviations": [
-    "Continuous Gaussian rendering is unavailable in the current wrapper; used nearest FaceLift discrete view: front"
-  ],
+  "document_deviations": [],
   "models": {
     "flux": {
       "path": "/root/autodl-tmp/movie/third_party/PuLID/models/flux-dev-fp8.safetensors",

@@ -6,6 +6,6 @@
     1280,
     64
   ],
-  "seconds": 17.48818213120103,
-  "reference_mode": "facelift_discrete_pose_view"
+  "seconds": 15.166969111189246,
+  "reference_mode": "facelift_continuous_gaussian_pose_render"
 }

@@ -124,63 +124,116 @@ def _align_reference(
     reference_mode: str,
     document_deviation: str | None,
 ) -> tuple[Image.Image, dict]:
-    source_square = _expanded_square(source_bbox, reference.width, reference.height)
-    target_square = _expanded_square(target_bbox, canvas_size[0], canvas_size[1])
-    source_crop = reference.crop(tuple(source_square)).convert("RGB")
-    paste_width = max(1, target_square[2] - target_square[0])
-    paste_height = max(1, target_square[3] - target_square[1])
-    source_crop = source_crop.resize((paste_width, paste_height), Image.Resampling.LANCZOS)
+    """Match the rendered face scale and center to the target face bbox.
+
+    This is the rectangular-canvas equivalent of the main experiment's
+    ``match_target_scale`` layout: preserve the source aspect ratio, make the
+    face no larger than the target bbox times the configured ratio, and align
+    the two face centers.  The surrounding patch is retained for parsing and
+    feathering, while the rest of the reference canvas stays neutral gray.
+    """
+
+    source_x1, source_y1, source_x2, source_y2 = [float(value) for value in source_bbox]
+    target_x1, target_y1, target_x2, target_y2 = [float(value) for value in target_bbox]
+    source_face_width = max(1.0, source_x2 - source_x1)
+    source_face_height = max(1.0, source_y2 - source_y1)
+    target_face_width = max(1.0, target_x2 - target_x1)
+    target_face_height = max(1.0, target_y2 - target_y1)
+    source_center_x = (source_x1 + source_x2) / 2.0
+    source_center_y = (source_y1 + source_y2) / 2.0
+    target_center_x = (target_x1 + target_x2) / 2.0
+    target_center_y = (target_y1 + target_y2) / 2.0
+
+    crop_ratio = 1.45
+    source_crop_bbox = [
+        max(0, int(round(source_center_x - source_face_width * crop_ratio / 2.0))),
+        max(0, int(round(source_center_y - source_face_height * crop_ratio / 2.0))),
+        min(reference.width, int(round(source_center_x + source_face_width * crop_ratio / 2.0))),
+        min(reference.height, int(round(source_center_y + source_face_height * crop_ratio / 2.0))),
+    ]
+    source_crop = reference.crop(tuple(source_crop_bbox)).convert("RGB")
+
+    face_scale_ratio = float(os.getenv("MULTISHOT_REFERENCE_FACE_SCALE_RATIO", "1.0"))
+    desired_face_width = min(canvas_size[0] * 0.85, target_face_width * face_scale_ratio)
+    desired_face_height = min(canvas_size[1] * 0.85, target_face_height * face_scale_ratio)
+    scale = min(
+        desired_face_width / source_face_width,
+        desired_face_height / source_face_height,
+    )
+    resized_width = max(1, int(round(source_crop.width * scale)))
+    resized_height = max(1, int(round(source_crop.height * scale)))
+    source_resized = source_crop.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
+
+    face_bbox_in_crop = [
+        (source_x1 - source_crop_bbox[0]) * scale,
+        (source_y1 - source_crop_bbox[1]) * scale,
+        (source_x2 - source_crop_bbox[0]) * scale,
+        (source_y2 - source_crop_bbox[1]) * scale,
+    ]
+    face_center_x = (face_bbox_in_crop[0] + face_bbox_in_crop[2]) / 2.0
+    face_center_y = (face_bbox_in_crop[1] + face_bbox_in_crop[3]) / 2.0
+    paste_x = int(round(target_center_x - face_center_x))
+    paste_y = int(round(target_center_y - face_center_y))
+
     canvas = Image.new("RGB", canvas_size, (127, 127, 127))
-    canvas.paste(source_crop, (target_square[0], target_square[1]))
+    canvas.paste(source_resized, (paste_x, paste_y))
+    face_bbox_on_layout = [
+        int(round(face_bbox_in_crop[0] + paste_x)),
+        int(round(face_bbox_in_crop[1] + paste_y)),
+        int(round(face_bbox_in_crop[2] + paste_x)),
+        int(round(face_bbox_in_crop[3] + paste_y)),
+    ]
+    target_paste_bbox = [
+        max(0, paste_x),
+        max(0, paste_y),
+        min(canvas_size[0], paste_x + resized_width),
+        min(canvas_size[1], paste_y + resized_height),
+    ]
     return canvas, {
         "source_face_bbox": source_bbox,
-        "source_crop_bbox": source_square,
+        "source_crop_bbox": source_crop_bbox,
         "target_face_bbox": target_bbox,
-        "target_paste_bbox": target_square,
-        "scale_x": paste_width / max(1, source_square[2] - source_square[0]),
-        "scale_y": paste_height / max(1, source_square[3] - source_square[1]),
+        "target_paste_bbox": target_paste_bbox,
+        "face_bbox_on_reference_layout": face_bbox_on_layout,
+        "scale_x": scale,
+        "scale_y": scale,
+        "reference_face_scale_ratio": face_scale_ratio,
+        "reference_to_target_face_scale": [
+            round((face_bbox_on_layout[2] - face_bbox_on_layout[0]) / target_face_width, 4),
+            round((face_bbox_on_layout[3] - face_bbox_on_layout[1]) / target_face_height, 4),
+        ],
+        "target_face_size": [round(target_face_width, 2), round(target_face_height, 2)],
+        "reference_face_size_on_layout": [
+            face_bbox_on_layout[2] - face_bbox_on_layout[0],
+            face_bbox_on_layout[3] - face_bbox_on_layout[1],
+        ],
+        "layout_mode": "match_target_scale",
         "reference_mode": reference_mode,
         "document_deviation": document_deviation,
     }
 
 
-def _build_facelift_views(reference_path: Path, output: Path) -> dict[str, Path]:
+def _build_facelift_asset_record(reference_path: Path, output: Path) -> dict:
     """Build FaceLift before FLUX is loaded so the two large models stay serial."""
     from multishot.facelift_backend import build_facelift_asset
 
     face_dir = output / "input" / "facelift"
-    views = {name: face_dir / f"{name}.png" for name in ("front", "left", "right")}
     cached_result = output / "input" / "facelift_result.json"
-    if cached_result.exists() and all(path.exists() for path in views.values()):
+    if cached_result.exists():
         result = json.loads(cached_result.read_text(encoding="utf-8"))
-        if result.get("facelift_status") == "success":
-            return views
+        model_path = Path(result.get("model_path") or "")
+        if result.get("facelift_status") == "success" and model_path.exists():
+            return result
     result = build_facelift_asset(str(reference_path), str(face_dir))
     if result.get("facelift_status") != "success":
         raise RuntimeError(f"FaceLift did not complete successfully: {result}")
-    missing = [str(path) for path in views.values() if not path.exists()]
-    if missing:
-        raise RuntimeError(f"FaceLift views are missing: {missing}")
+    model_path = Path(result.get("model_path") or "")
+    if not model_path.exists():
+        raise RuntimeError(f"FaceLift Gaussian model is missing: {model_path}")
     _write_json(output / "input" / "facelift_result.json", result)
     gc.collect()
     torch.cuda.empty_cache()
-    return views
-
-
-def _choose_facelift_view(views: dict[str, Path], pose: list[float]) -> tuple[Image.Image, str, dict]:
-    pitch, yaw, roll = (pose + [0.0, 0.0, 0.0])[:3]
-    if yaw >= 18.0:
-        name = "right"
-    elif yaw <= -18.0:
-        name = "left"
-    else:
-        name = "front"
-    image = Image.open(views[name]).convert("RGB")
-    return image, name, {
-        "selected_discrete_view": name,
-        "target_pitch_yaw_roll": [pitch, yaw, roll],
-        "selection_threshold_degrees": 18.0,
-    }
+    return result
 
 
 def _semantic_inner_face_mask(
@@ -399,7 +452,7 @@ def run(args) -> Path:
     for path in (step_dir, control_dir, treatment_dir, output / "input", output / "trajectory"):
         path.mkdir(parents=True, exist_ok=True)
 
-    facelift_views = _build_facelift_views(reference_path, output) if args.build_facelift else None
+    facelift_asset = _build_facelift_asset_record(reference_path, output) if args.build_facelift else None
 
     device = torch.device("cuda")
     old_cwd = Path.cwd()
@@ -511,16 +564,52 @@ def run(args) -> Path:
             },
         )
 
-        if facelift_views:
-            rendered_reference, selected_view, view_meta = _choose_facelift_view(facelift_views, pose)
-            reference_mode = "facelift_discrete_pose_view"
-            document_deviation = (
-                "Continuous Gaussian rendering is unavailable in the current wrapper; "
-                f"used nearest FaceLift discrete view: {selected_view}"
+        if facelift_asset:
+            # Reuse the main experiment's continuous Gaussian renderer.  The
+            # FaceLift reconstruction model has already been released; this
+            # path only reloads the filtered PLY and invokes the lightweight
+            # Gaussian rasterizer for the detected target pose.
+            from multishot.mcp_asset_server import _render_3d_face_reference
+
+            pitch, yaw, roll = (pose + [0.0, 0.0, 0.0])[:3]
+            face_pose = {"pitch": pitch, "yaw": yaw, "roll": roll}
+            gaussian_model_path = Path(facelift_asset["model_path"])
+            gaussian_asset_dir = Path(
+                facelift_asset.get("facelift_output_dir") or gaussian_model_path.parent
             )
+            rendered_path = _render_3d_face_reference(
+                {
+                    "model_path": str(gaussian_model_path),
+                    "path": str(gaussian_asset_dir),
+                },
+                face_pose,
+                target_bbox,
+            )
+            if not rendered_path:
+                raise RuntimeError(
+                    "Continuous FaceLift Gaussian rendering failed; discrete-view fallback is disabled"
+                )
+            rendered_reference = Image.open(rendered_path).convert("RGB")
+            render_meta_path = Path(rendered_path).with_suffix(".meta.json")
+            render_meta = (
+                json.loads(render_meta_path.read_text(encoding="utf-8"))
+                if render_meta_path.exists()
+                else {}
+            )
+            view_meta = {
+                "target_pitch_yaw_roll": [pitch, yaw, roll],
+                "gaussian_model_path": str(gaussian_model_path),
+                "gaussian_render_path": str(rendered_path),
+                "gaussian_render_meta_path": str(render_meta_path),
+                "gaussian_camera": render_meta.get("camera"),
+            }
+            reference_mode = "facelift_continuous_gaussian_pose_render"
+            document_deviation = None
+            gc.collect()
+            torch.cuda.empty_cache()
         else:
             rendered_reference = reference
-            view_meta = {"selected_discrete_view": None, "target_pitch_yaw_roll": pose}
+            view_meta = {"target_pitch_yaw_roll": pose}
             reference_mode = "aligned_2d_identity_reference_smoke"
             document_deviation = "FaceLift was explicitly disabled for this smoke run"
         source_face = _largest_face(pulid.app, rendered_reference)
@@ -666,6 +755,9 @@ def run(args) -> Path:
                 "mask_type": "inner_face",
                 "fp8": args.fp8,
                 "reference_image": str(reference_path),
+                "reference_image_sha256": _sha256(reference_path),
+                "reference_image_generated": args.reference_generated,
+                "reference_image_origin": args.reference_origin,
                 "reference_mode": align_meta["reference_mode"],
                 "facelift_step_2d": int(os.getenv("MULTISHOT_FACELIFT_STEP_2D", "50")),
                 "document_deviations": [align_meta["document_deviation"]]
@@ -715,6 +807,17 @@ def run(args) -> Path:
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-image", required=True)
+    parser.add_argument(
+        "--reference-origin",
+        default="external_input_source_url_not_recorded",
+        help="Human-readable provenance recorded in config.json",
+    )
+    parser.add_argument(
+        "--reference-generated",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Record whether the reference image was generated by this project",
+    )
     parser.add_argument("--output-dir", default=str(PROJECT_ROOT / "experiment_output" / "pulid_flux_smoke"))
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--reference-prompt", default=REFERENCE_PROMPT)
