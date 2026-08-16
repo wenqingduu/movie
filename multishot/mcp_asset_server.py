@@ -530,6 +530,88 @@ def _face_pose_value(face_pose: dict, key: str, default: float = 0.0):
         return default
 
 
+def _facelift_pose_calibration_path(model_path: str | Path) -> Path | None:
+    configured = os.getenv("MULTISHOT_FACELIFT_POSE_CALIBRATION", "").strip()
+    if configured.lower() in {"0", "off", "false", "none"}:
+        return None
+    if configured:
+        return Path(configured)
+    return Path(model_path).with_suffix(".pose_calibration.json")
+
+
+def _apply_facelift_pose_calibration(face_pose: dict, model_path: str | Path):
+    """Map a desired InsightFace pose to a calibrated FaceLift camera pose."""
+
+    import numpy as np
+
+    desired = {
+        axis: _face_pose_value(face_pose, axis)
+        for axis in ("pitch", "yaw", "roll")
+    }
+    calibration_path = _facelift_pose_calibration_path(model_path)
+    if not calibration_path or not calibration_path.exists():
+        return desired, {
+            "applied": False,
+            "reason": "calibration_not_found_or_disabled",
+            "path": str(calibration_path) if calibration_path else None,
+        }
+
+    try:
+        calibration_bytes = calibration_path.read_bytes()
+        calibration = json.loads(calibration_bytes.decode("utf-8"))
+        calibration_sha256 = hashlib.sha256(calibration_bytes).hexdigest()
+    except Exception as exc:
+        return desired, {
+            "applied": False,
+            "reason": f"calibration_load_failed: {exc}",
+            "path": str(calibration_path),
+        }
+
+    desired_vector = np.array(
+        [desired["pitch"], desired["yaw"], desired["roll"], 1.0],
+        dtype=np.float64,
+    )
+    for profile in calibration.get("profiles", []):
+        bounds = profile.get("target_bounds", {})
+        if any(
+            not (
+                float(bounds.get(axis, [-float("inf"), float("inf")])[0])
+                <= desired[axis]
+                <= float(bounds.get(axis, [-float("inf"), float("inf")])[1])
+            )
+            for axis in ("pitch", "yaw", "roll")
+        ):
+            continue
+        matrix = np.asarray(profile.get("target_to_camera_affine"), dtype=np.float64)
+        if matrix.shape != (3, 4) or not np.isfinite(matrix).all():
+            continue
+        corrected_vector = matrix @ desired_vector
+        corrected = {
+            axis: float(corrected_vector[index])
+            for index, axis in enumerate(("pitch", "yaw", "roll"))
+        }
+        camera_bounds = profile.get("camera_bounds", {})
+        for axis in ("pitch", "yaw", "roll"):
+            lower, upper = camera_bounds.get(axis, [-float("inf"), float("inf")])
+            corrected[axis] = max(float(lower), min(float(upper), corrected[axis]))
+        return corrected, {
+            "applied": True,
+            "path": str(calibration_path),
+            "calibration_sha256": calibration_sha256,
+            "profile": profile.get("name"),
+            "desired_pose": desired,
+            "corrected_camera_pose": corrected,
+            "fit_rmse_degrees": profile.get("fit_rmse_degrees"),
+        }
+
+    return desired, {
+        "applied": False,
+        "reason": "pose_outside_calibrated_profiles",
+        "path": str(calibration_path),
+        "desired_pose": desired,
+    }
+
+
 def _pose_to_facelift_camera(face_pose: dict, image_size: int):
     """把 InsightFace yaw/pitch/roll 转成 FaceLift Gaussian renderer 的 OpenCV camera。"""
 
@@ -611,6 +693,7 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
     yaw = _face_pose_value(face_pose, "yaw")
     pitch = _face_pose_value(face_pose, "pitch")
     roll = _face_pose_value(face_pose, "roll")
+    renderer_pose, calibration_meta = _apply_facelift_pose_calibration(face_pose, model_path)
     target_tag = "none"
     if target_face_bbox:
         target = [float(v) for v in target_face_bbox]
@@ -621,7 +704,12 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
         target_tag = f"{int(round(target_w))}x{int(round(target_h))}_{int(round(target_cx))}_{int(round(target_cy))}"
     yaw_sign_tag = str(os.getenv("MULTISHOT_FACELIFT_YAW_SIGN", "-1"))
     roll_sign_tag = str(os.getenv("MULTISHOT_FACELIFT_ROLL_SIGN", "1"))
-    tag = f"pose_ys_{yaw_sign_tag}_rs_{roll_sign_tag}_yaw_{yaw:+.1f}_pitch_{pitch:+.1f}_roll_{roll:+.1f}_{target_tag}".replace("+", "p").replace("-", "m").replace(".", "p")
+    calibration_tag = (
+        f"cal_{calibration_meta.get('profile')}_{calibration_meta.get('calibration_sha256', '')[:10]}_"
+        if calibration_meta.get("applied")
+        else ""
+    )
+    tag = f"{calibration_tag}pose_ys_{yaw_sign_tag}_rs_{roll_sign_tag}_yaw_{yaw:+.1f}_pitch_{pitch:+.1f}_roll_{roll:+.1f}_{target_tag}".replace("+", "p").replace("-", "m").replace(".", "p")
     render_dir = Path(asset_dir) / "pose_renders"
     render_dir.mkdir(parents=True, exist_ok=True)
     render_path = render_dir / f"{tag}.png"
@@ -634,7 +722,7 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
         pc = GaussianModel(sh_degree=3)
         pc.load_ply(model_path)
         pc = pc.to(device)
-        c2w_np, fxfycxcy_np, camera_meta = _pose_to_facelift_camera(face_pose, image_size)
+        c2w_np, fxfycxcy_np, camera_meta = _pose_to_facelift_camera(renderer_pose, image_size)
         c2w = torch.from_numpy(c2w_np).float().to(device)
         fxfycxcy = torch.from_numpy(fxfycxcy_np).float().to(device)
         with torch.no_grad():
@@ -646,6 +734,8 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
             "source_model_path": str(model_path),
             "render_image": str(render_path),
             "input_face_pose": face_pose or {},
+            "renderer_pose": renderer_pose,
+            "pose_calibration": calibration_meta,
             "camera": camera_meta,
             "target_face_bbox": [round(float(v), 2) for v in target_face_bbox] if target_face_bbox else None,
             "render_size": image_size,

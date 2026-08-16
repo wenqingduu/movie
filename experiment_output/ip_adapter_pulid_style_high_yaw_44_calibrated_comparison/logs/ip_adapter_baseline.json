@@ -1,0 +1,25 @@
+{
+  "backend": "diffusers",
+  "model_name": "sdxl-base-1.0-ip-adapter",
+  "from_step": 30,
+  "step": 50,
+  "window_size": 20,
+  "latent_shape": [
+    1,
+    4,
+    128,
+    128
+  ],
+  "timestep": 1,
+  "prediction_type": "epsilon",
+  "injection_mode": "off",
+  "injection_plan": {
+    "lambda": 0.0,
+    "targets": []
+  },
+  "applied_injections": [],
+  "conditioning": {
+    "prompt": "strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up",
+    "reference_portrait": "/root/autodl-tmp/movie/experiment_assets/pulid_reference.jpg"
+  }
+}

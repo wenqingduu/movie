@@ -1,0 +1,186 @@
+{
+  "status": "completed",
+  "model": "sdxl-base-1.0-ip-adapter",
+  "prompt": "strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up",
+  "seed": 20260818,
+  "total_steps": 50,
+  "fork_step": 30,
+  "ip_adapter_scale": 0.3,
+  "injection_lambda": 0.4,
+  "attention_scale": 0.85,
+  "effective_self_attention_strength": 0.34,
+  "effective_trajectory_residual_strength": 0.4,
+  "dynamic_3d_ip_adapter_enabled": false,
+  "target_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      442.51,
+      226.35,
+      693.72,
+      569.64
+    ],
+    "pose": {
+      "pitch": 13.4097,
+      "yaw": 54.6798,
+      "roll": 10.6905
+    },
+    "detection_source": "antelopev2"
+  },
+  "yaw_gate": {
+    "minimum_absolute_yaw": 25.0,
+    "maximum_absolute_yaw": 55.0,
+    "detected_yaw": 54.6798,
+    "accepted": true
+  },
+  "continuous_3d_render_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      441.84,
+      323.33,
+      732.08,
+      745.2
+    ],
+    "pose": {
+      "pitch": 13.1607,
+      "yaw": 55.8899,
+      "roll": 10.6976
+    },
+    "detection_source": "antelopev2"
+  },
+  "continuous_3d_reference": {
+    "mode": "target_pose_gaussian_render",
+    "gaussian_model": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+    "provided_render": null
+  },
+  "reference_layout": {
+    "reference_source_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.png",
+    "reference_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.png",
+    "reference_mask_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.mask.png",
+    "reference_face_bbox": [
+      450,
+      227,
+      686,
+      570
+    ],
+    "reference_crop_bbox_on_source": [
+      377,
+      228,
+      797,
+      840
+    ],
+    "reference_crop_meta_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.meta.json",
+    "reference_mask_source": "insightface",
+    "reference_layout_mode": "match_target_scale",
+    "reference_face_scale_ratio": 1.0,
+    "reference_to_target_face_scale": [
+      0.9395,
+      0.9992
+    ],
+    "target_face_size": [
+      251.21,
+      343.29
+    ],
+    "reference_face_size_on_layout": [
+      236,
+      343
+    ]
+  },
+  "mask_policy": {
+    "name": "conservative_geometric_face_core",
+    "matches_pulid_geometric_core": true,
+    "semantic_face_parser_intersection": false,
+    "documented_deviation": "SDXL comparison uses the PuLID conservative geometric core without BiSeNet semantic intersection"
+  },
+  "trajectory_policy": {
+    "formula": "target_next += strength * mask * (reference_next - target_next)",
+    "reference_state": "VAE x0 noised with fixed reference noise at the target next scheduler timestep",
+    "final_state": "clean reference VAE x0"
+  },
+  "paths": {
+    "comparison": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/comparison.jpg",
+    "reference_portrait": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/original_reference.jpg",
+    "continuous_3d_render": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.png",
+    "scale_matched_3d_layout": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.png",
+    "target_face_mask": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/shared/step_30_conservative_face_mask.png",
+    "shared_step_x0": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/shared/step_30_x0.png",
+    "branches": {
+      "ip_adapter_baseline": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/branches/ip_adapter_baseline.png",
+      "ip_adapter_plus_self_attention": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/branches/ip_adapter_plus_self_attention.png",
+      "ip_adapter_plus_pulid_style_residual": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/branches/ip_adapter_plus_pulid_style_residual.png"
+    }
+  },
+  "branch_definition": {
+    "ip_adapter_baseline": "original portrait IP-Adapter only",
+    "ip_adapter_plus_self_attention": "original portrait IP-Adapter plus local 3D masked mutual self-attention",
+    "ip_adapter_plus_pulid_style_residual": "original portrait IP-Adapter plus local same-timestep 3D trajectory residual"
+  },
+  "metrics": {
+    "ip_adapter_baseline": {
+      "reference_portrait_cosine": 0.059616,
+      "continuous_3d_render_cosine": 0.052479,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          441.89,
+          230.29,
+          692.49,
+          568.9
+        ],
+        "pose": {
+          "pitch": 14.1808,
+          "yaw": 54.511,
+          "roll": 11.0857
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 0.0,
+      "target_face_bbox_rgb_mae_vs_baseline": 0.0
+    },
+    "ip_adapter_plus_self_attention": {
+      "reference_portrait_cosine": 0.105136,
+      "continuous_3d_render_cosine": 0.086345,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          442.02,
+          232.31,
+          692.37,
+          568.86
+        ],
+        "pose": {
+          "pitch": 14.9519,
+          "yaw": 54.8291,
+          "roll": 11.4635
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 0.571373,
+      "target_face_bbox_rgb_mae_vs_baseline": 3.017978
+    },
+    "ip_adapter_plus_pulid_style_residual": {
+      "reference_portrait_cosine": 0.61634,
+      "continuous_3d_render_cosine": 0.817205,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          441.63,
+          236.88,
+          688.57,
+          570.87
+        ],
+        "pose": {
+          "pitch": 14.1149,
+          "yaw": 53.9328,
+          "roll": 10.3548
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 3.371527,
+      "target_face_bbox_rgb_mae_vs_baseline": 24.560553
+    }
+  },
+  "elapsed_seconds": 152.745
+}

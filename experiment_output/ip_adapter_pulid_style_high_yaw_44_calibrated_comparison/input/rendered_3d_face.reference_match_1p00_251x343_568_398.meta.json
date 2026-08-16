@@ -1,0 +1,66 @@
+{
+  "source_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.png",
+  "reference_layout_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.png",
+  "reference_layout_mask": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/rendered_3d_face.reference_match_1p00_251x343_568_398.mask.png",
+  "layout_mode": "match_target_scale",
+  "reference_face_scale_ratio": 1.0,
+  "source_size": [
+    1024,
+    1024
+  ],
+  "output_size": [
+    1024,
+    1024
+  ],
+  "target_face_bbox": [
+    442.51,
+    226.35,
+    693.72,
+    569.64
+  ],
+  "target_face_size": [
+    251.21,
+    343.29
+  ],
+  "detected_face_bbox_on_source": [
+    441.84,
+    323.33,
+    732.08,
+    745.2
+  ],
+  "source_face_crop_bbox": [
+    377,
+    228,
+    797,
+    840
+  ],
+  "resized_source_crop_size": [
+    342,
+    498
+  ],
+  "paste_xy": [
+    397,
+    149
+  ],
+  "face_bbox_on_reference_layout": [
+    450,
+    227,
+    686,
+    570
+  ],
+  "mask_bbox_on_reference_layout": [
+    403,
+    125,
+    733,
+    672
+  ],
+  "reference_face_size_on_layout": [
+    236,
+    343
+  ],
+  "reference_to_target_face_scale": [
+    0.9395,
+    0.9992
+  ],
+  "face_detection_source": "insightface"
+}

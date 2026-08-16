@@ -1,0 +1,51 @@
+{
+  "source_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+  "render_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/input/continuous_gaussian/pose_renders/cal_positive_high_yaw_v1_pose_ys_m1_rs_1_yaw_p54p7_pitch_p13p4_roll_p10p7_251x343_568_398.png",
+  "input_face_pose": {
+    "pitch": 13.4097,
+    "yaw": 54.6798,
+    "roll": 10.6905
+  },
+  "renderer_pose": {
+    "pitch": 9.587310779763161,
+    "yaw": 48.97894326980703,
+    "roll": -0.8291868925565566
+  },
+  "pose_calibration": {
+    "applied": true,
+    "path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.pose_calibration.json",
+    "profile": "positive_high_yaw_v1",
+    "desired_pose": {
+      "pitch": 13.4097,
+      "yaw": 54.6798,
+      "roll": 10.6905
+    },
+    "corrected_camera_pose": {
+      "pitch": 9.587310779763161,
+      "yaw": 48.97894326980703,
+      "roll": -0.8291868925565566
+    },
+    "fit_rmse_degrees": {
+      "pitch": 3.564475856833739,
+      "yaw": 1.1889089723670028,
+      "roll": 4.1993639683785835
+    }
+  },
+  "camera": {
+    "yaw": 48.9789,
+    "pitch": 9.5873,
+    "roll": -0.8292,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 221.0211,
+    "elevation": -9.5873
+  },
+  "target_face_bbox": [
+    442.51,
+    226.35,
+    693.72,
+    569.64
+  ],
+  "render_size": 1024,
+  "renderer": "FaceLift GaussianModel/render_opencv_cam"
+}

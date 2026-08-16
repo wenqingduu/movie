@@ -2,6 +2,8 @@
 
 > 给后续接手本仓库的大模型：本实验已真实完成。原始人物照片始终作为全局 IP-Adapter 条件，3D 人脸只作为 step 30～49 的局部 trajectory residual 插件；不要把结果误解为“仅使用 3D 图生成”。
 
+> 后续更新：FaceLift 大姿态 camera mapping 已完成 54 样本标定并重跑本实验。标定后 residual 最终姿态从 `24.5662/57.5780/29.0267°` 改善到 `14.1149/53.9328/10.3548°`，对原始照片 cosine 从 `0.593941` 提升到 `0.616340`。当前应优先查看 `experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/`，完整标定说明见 `FACELIFT_POSE_CALIBRATION_STATUS.md`。
+
 ## 结论
 
 大角度下，PuLID 式 3D trajectory residual 在 IP-Adapter 基线上仍能显著注入身份，并保持目标脸朝向：
@@ -108,6 +110,6 @@ export PYTHONPATH="$PWD"
 
 1. 在相同 seed、prompt 和 baseline 下测试 λ=`0.2/0.3`，降低偏亮贴脸感。
 2. 将 PuLID 当前的 BiSeNet semantic intersection 移植到 SDXL mask，排除更多发际线和轮廓风险区。
-3. 校准极端 yaw 下 FaceLift camera pose 与渲染结果的 InsightFace pitch/roll 偏差；本轮请求 pose 为 `13.4097/54.6798/10.6905`，render 检测为 `24.8189/59.7947/32.7208`。
+3. 已完成当前人物 Gaussian 的正、负高 yaw 局部标定；下一步验证该映射是否能泛化到其他人物 Gaussian，并补充中等 yaw profile。
 4. 对动态 3D render 做目标场景颜色、曝光和低频照明匹配后再编码 reference x0。
 5. 保持原始照片 IP-Adapter 为基础条件；3D 路径继续作为可开关插件，不要替换基础身份条件。

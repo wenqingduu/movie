@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "method": "local_affine_inverse_of_insightface_measured_facelift_camera_grid",
+  "gaussian_model": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+  "gaussian_model_sha256": "da5bb6c6fbfbaf43c5683968bfc5bfc4218a421167725a7d4af9898b803454e3",
+  "image_size": 1024,
+  "axes": [
+    "pitch",
+    "yaw",
+    "roll"
+  ],
+  "camera_grid": {
+    "pitch": [
+      -15.0,
+      0.0,
+      15.0
+    ],
+    "yaw": [
+      -55.0,
+      -47.5,
+      -40.0,
+      40.0,
+      47.5,
+      55.0
+    ],
+    "roll": [
+      -20.0,
+      0.0,
+      20.0
+    ]
+  },
+  "detected_samples": 54,
+  "total_samples": 54,
+  "profiles": [
+    {
+      "name": "positive_high_yaw_v1",
+      "target_bounds": {
+        "pitch": [
+          -20.0,
+          30.0
+        ],
+        "yaw": [
+          35.0,
+          65.0
+        ],
+        "roll": [
+          -30.0,
+          35.0
+        ]
+      },
+      "camera_bounds": {
+        "pitch": [
+          -20.0,
+          20.0
+        ],
+        "yaw": [
+          32.5,
+          62.5
+        ],
+        "roll": [
+          -25.0,
+          25.0
+        ]
+      },
+      "target_to_camera_affine": [
+        [
+          0.5767668888550183,
+          -0.041001554319443675,
+          -0.02383163793409869,
+          4.349768745494821
+        ],
+        [
+          -0.023979552514198695,
+          1.0062009419366365,
+          0.000461931822127974,
+          -5.723302671894672
+        ],
+        [
+          -0.7185963149436233,
+          0.03411893901288021,
+          0.9899200598003469,
+          -3.641383048789147
+        ]
+      ],
+      "camera_to_detected_affine": [
+        [
+          1.7423414814814806,
+          0.06663629629629607,
+          0.021129722222222647,
+          -6.991024074074061
+        ],
+        [
+          0.04064777777777786,
+          0.9563622222222223,
+          0.0005163888888892743,
+          7.377342592592573
+        ],
+        [
+          1.2417899999999993,
+          0.018871111111110977,
+          1.0151325000000009,
+          -1.8150962962962889
+        ]
+      ],
+      "fit_rmse_degrees": {
+        "pitch": 3.564475856833739,
+        "yaw": 1.1889089723670028,
+        "roll": 4.1993639683785835
+      },
+      "inverse_camera_rmse_degrees": {
+        "pitch": 1.9875475896787944,
+        "yaw": 1.2139288884707102,
+        "roll": 1.6545772292554353
+      },
+      "sample_count": 27,
+      "detected_pose_range": {
+        "pitch": [
+          -35.6851,
+          29.0434
+        ],
+        "yaw": [
+          43.8334,
+          61.7025
+        ],
+        "roll": [
+          -46.5345,
+          45.1695
+        ]
+      }
+    },
+    {
+      "name": "negative_high_yaw_v1",
+      "target_bounds": {
+        "pitch": [
+          -20.0,
+          30.0
+        ],
+        "yaw": [
+          -65.0,
+          -35.0
+        ],
+        "roll": [
+          -30.0,
+          35.0
+        ]
+      },
+      "camera_bounds": {
+        "pitch": [
+          -20.0,
+          20.0
+        ],
+        "yaw": [
+          -62.5,
+          -32.5
+        ],
+        "roll": [
+          -25.0,
+          25.0
+        ]
+      },
+      "target_to_camera_affine": [
+        [
+          0.5109650817408756,
+          0.03361623794542061,
+          0.005564793985036781,
+          3.15957708010366
+        ],
+        [
+          -0.0021321734723944094,
+          0.931316907117252,
+          -0.013863378665839613,
+          4.502940728866059
+        ],
+        [
+          0.7486066129159719,
+          -0.002267190847635603,
+          1.003069453384724,
+          1.1859108608729743
+        ]
+      ],
+      "camera_to_detected_affine": [
+        [
+          1.9368992592592584,
+          -0.05664000000000029,
+          0.008576111111111118,
+          -5.206759259259271
+        ],
+        [
+          -0.015582962962962788,
+          0.9900318518518523,
+          0.01434611111111117,
+          -8.808842592592578
+        ],
+        [
+          -1.4272874074074067,
+          0.04278518518518512,
+          0.979966944444445,
+          2.6018111111111075
+        ]
+      ],
+      "fit_rmse_degrees": {
+        "pitch": 3.2928405534053558,
+        "yaw": 1.771817347151412,
+        "roll": 4.084215559490642
+      },
+      "inverse_camera_rmse_degrees": {
+        "pitch": 1.6783256227235412,
+        "yaw": 1.7150690077639863,
+        "roll": 1.6842394589799394
+      },
+      "sample_count": 27,
+      "detected_pose_range": {
+        "pitch": [
+          -37.669,
+          31.6001
+        ],
+        "yaw": [
+          -66.3276,
+          -46.8573
+        ],
+        "roll": [
+          -47.1609,
+          48.2266
+        ]
+      }
+    }
+  ],
+  "validation": [
+    {
+      "profile": "positive_high_yaw_v1",
+      "target_pose": {
+        "pitch": 13.4097,
+        "yaw": 54.6798,
+        "roll": 10.6905
+      },
+      "corrected_camera_pose": {
+        "pitch": 9.587310779763161,
+        "yaw": 48.97894326980703,
+        "roll": -0.8291868925565566
+      },
+      "detected_pose": {
+        "pitch": 13.1607,
+        "yaw": 55.8899,
+        "roll": 10.6976
+      },
+      "absolute_error_degrees": {
+        "pitch": 0.24900000000000055,
+        "yaw": 1.210099999999997,
+        "roll": 0.00709999999999944
+      },
+      "image": "/root/autodl-tmp/movie/experiment_output/facelift_pose_calibration/validation/validation_0_positive_high_yaw_v1.png"
+    },
+    {
+      "profile": "negative_high_yaw_v1",
+      "target_pose": {
+        "pitch": 0.2023,
+        "yaw": -43.7855,
+        "roll": -6.7964
+      },
+      "corrected_camera_pose": {
+        "pitch": 1.7532209637407208,
+        "yaw": -36.18144597964533,
+        "roll": -5.380637169458914
+      },
+      "detected_pose": {
+        "pitch": -1.74,
+        "yaw": -45.33,
+        "roll": -5.0237
+      },
+      "absolute_error_degrees": {
+        "pitch": 1.9423,
+        "yaw": 1.5444999999999993,
+        "roll": 1.7727000000000004
+      },
+      "image": "/root/autodl-tmp/movie/experiment_output/facelift_pose_calibration/validation/validation_1_negative_high_yaw_v1.png"
+    }
+  ]
+}
