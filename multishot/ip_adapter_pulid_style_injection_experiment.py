@@ -25,7 +25,7 @@ from multishot.ip_adapter_self_attention_experiment import (
     _pixel_delta,
     _write_json,
 )
-from multishot.mcp_asset_server import _prepare_reference_face_crop
+from multishot.mcp_asset_server import _prepare_reference_face_crop, _render_3d_face_reference
 
 
 def _write_conservative_face_mask(
@@ -76,9 +76,12 @@ def run(args) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     reference_path = args.reference.resolve()
     continuous_render = args.continuous_render.resolve()
+    gaussian_model = args.gaussian_model.resolve() if args.gaussian_model else None
     if not reference_path.exists():
         raise FileNotFoundError(f"Reference portrait not found: {reference_path}")
-    if not continuous_render.exists():
+    if gaussian_model and not gaussian_model.exists():
+        raise FileNotFoundError(f"FaceLift Gaussian model not found: {gaussian_model}")
+    if not gaussian_model and not continuous_render.exists():
         raise FileNotFoundError(f"Cached continuous FaceLift render not found: {continuous_render}")
 
     os.environ["MULTISHOT_INSIGHTFACE_MODEL_NAME"] = "antelopev2"
@@ -87,6 +90,7 @@ def run(args) -> dict:
     os.environ["MULTISHOT_DIFFUSION_STEPS"] = str(args.steps)
     os.environ["MULTISHOT_FINAL_STEP"] = str(args.steps)
     os.environ["MULTISHOT_IP_ADAPTER_IMAGE"] = str(reference_path)
+    os.environ["MULTISHOT_IP_ADAPTER_SCALE"] = str(args.ip_adapter_scale)
     os.environ["MULTISHOT_REFERENCE_LAYOUT_MODE"] = "match_target_scale"
     os.environ["MULTISHOT_REFERENCE_FACE_SCALE_RATIO"] = str(args.reference_scale)
     os.environ["MULTISHOT_REFERENCE_CROP_SIZE"] = "1024"
@@ -98,7 +102,8 @@ def run(args) -> dict:
     copied_reference = input_dir / "original_reference.jpg"
     copied_render = input_dir / "rendered_3d_face.png"
     shutil.copy2(reference_path, copied_reference)
-    shutil.copy2(continuous_render, copied_render)
+    if not gaussian_model:
+        shutil.copy2(continuous_render, copied_render)
 
     backend = OpenSourceDiffusionBackend("sdxl-base-1.0-ip-adapter")
     started = time.time()
@@ -121,6 +126,31 @@ def run(args) -> dict:
     app = _face_app()
     target_image = Image.open(shared_path)
     target_face = _face_record(_largest_face(app, shared_path), *target_image.size)
+    target_yaw = float(target_face["pose"]["yaw"])
+    yaw_gate = {
+        "minimum_absolute_yaw": float(args.min_abs_yaw),
+        "maximum_absolute_yaw": float(args.max_abs_yaw),
+        "detected_yaw": target_yaw,
+        "accepted": args.min_abs_yaw <= abs(target_yaw) <= args.max_abs_yaw,
+    }
+    _write_json(output / "shared" / f"step_{args.fork_step:02d}_yaw_gate.json", yaw_gate)
+    if not yaw_gate["accepted"]:
+        raise RuntimeError(
+            f"Step-{args.fork_step} absolute yaw {abs(target_yaw):.4f} is outside "
+            f"the requested [{args.min_abs_yaw:.4f}, {args.max_abs_yaw:.4f}] range"
+        )
+    if gaussian_model:
+        rendered_path = _render_3d_face_reference(
+            {
+                "model_path": str(gaussian_model),
+                "path": str(input_dir / "continuous_gaussian"),
+            },
+            target_face["pose"],
+            target_face["face_bbox"],
+        )
+        if not rendered_path:
+            raise RuntimeError("FaceLift continuous Gaussian pose render failed")
+        shutil.copy2(rendered_path, copied_render)
     target_mask = _write_conservative_face_mask(
         shared_path,
         target_face["face_bbox"],
@@ -165,16 +195,21 @@ def run(args) -> dict:
         _write_json(output / "logs" / f"{branch_name}.json", _compact_state(branch_state))
 
     reference_embedding = _embedding(_largest_face(app, copied_reference))
-    render_embedding = _embedding(_largest_face(app, copied_render))
+    render_face = _largest_face(app, copied_render)
+    render_embedding = _embedding(render_face)
+    render_image = Image.open(copied_render)
+    render_face_record = _face_record(render_face, *render_image.size)
     baseline_path = branch_outputs["ip_adapter_baseline"]
     metrics = {}
     for branch_name, branch_path in branch_outputs.items():
         output_face = _largest_face(app, branch_path)
         output_embedding = _embedding(output_face)
+        output_image = Image.open(branch_path)
         metrics[branch_name] = {
             "reference_portrait_cosine": _cosine(reference_embedding, output_embedding),
             "continuous_3d_render_cosine": _cosine(render_embedding, output_embedding),
             "face_detected": output_face is not None,
+            "final_face": _face_record(output_face, *output_image.size),
             **_pixel_delta(baseline_path, branch_path, target_face["face_bbox"]),
         }
 
@@ -198,12 +233,20 @@ def run(args) -> dict:
         "seed": args.seed,
         "total_steps": args.steps,
         "fork_step": args.fork_step,
+        "ip_adapter_scale": args.ip_adapter_scale,
         "injection_lambda": args.injection_lambda,
         "attention_scale": args.attention_scale,
         "effective_self_attention_strength": round(args.injection_lambda * args.attention_scale, 4),
         "effective_trajectory_residual_strength": args.injection_lambda,
         "dynamic_3d_ip_adapter_enabled": False,
         "target_face": target_face,
+        "yaw_gate": yaw_gate,
+        "continuous_3d_render_face": render_face_record,
+        "continuous_3d_reference": {
+            "mode": "target_pose_gaussian_render" if gaussian_model else "pre_rendered_image",
+            "gaussian_model": str(gaussian_model) if gaussian_model else None,
+            "provided_render": str(continuous_render) if not gaussian_model else None,
+        },
         "reference_layout": reference_layout,
         "mask_policy": {
             "name": "conservative_geometric_face_core",
@@ -260,13 +303,17 @@ def parse_args():
         type=Path,
         default=PROJECT_ROOT / "experiment_output" / "ip_adapter_pulid_style_comparison",
     )
+    parser.add_argument("--gaussian-model", type=Path)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--fork-step", type=int, default=30)
+    parser.add_argument("--ip-adapter-scale", type=float, default=0.6)
     parser.add_argument("--injection-lambda", type=float, default=0.4)
     parser.add_argument("--attention-scale", type=float, default=0.85)
     parser.add_argument("--reference-scale", type=float, default=1.0)
+    parser.add_argument("--min-abs-yaw", type=float, default=0.0)
+    parser.add_argument("--max-abs-yaw", type=float, default=90.0)
     return parser.parse_args()
 
 

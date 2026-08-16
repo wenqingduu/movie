@@ -2,6 +2,8 @@
 
 > 给后续接手本仓库的大模型：本实验已经真实完成。目标不是把 IP-Adapter 改造成 PuLID 原生 IDFormer，而是把此前 PuLID-FLUX 3D 实验中直观有效的“同 timestep reference trajectory residual + 目标脸 mask”策略移植到 SDXL + IP-Adapter。
 
+大角度复验也已完成；结论、姿态诊断和结果入口见 `IP_ADAPTER_HIGH_YAW_PULID_STYLE_EXPERIMENT_STATUS.md`。
+
 ## 结论
 
 这个移植方向有效，而且明显强于当前 masked mutual self-attention：
