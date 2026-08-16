@@ -1,0 +1,11 @@
+{
+  "states": 51,
+  "dtype": "torch.bfloat16",
+  "shape": [
+    1,
+    1280,
+    64
+  ],
+  "seconds": 16.15884356200695,
+  "reference_mode": "facelift_continuous_gaussian_pose_render"
+}

@@ -1,0 +1,17 @@
+{
+  "bbox": [
+    136,
+    126,
+    335,
+    416
+  ],
+  "pitch_yaw_roll": [
+    0.20232993364334106,
+    -43.78550338745117,
+    -6.796408176422119
+  ],
+  "det_score": 0.8128884434700012,
+  "requested_start_step": 30,
+  "actual_start_step": 30,
+  "detection_failures": []
+}

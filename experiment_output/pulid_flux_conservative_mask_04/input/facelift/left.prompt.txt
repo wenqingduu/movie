@@ -1,0 +1,1 @@
+FaceLift rendered left view from /root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/multiview.png

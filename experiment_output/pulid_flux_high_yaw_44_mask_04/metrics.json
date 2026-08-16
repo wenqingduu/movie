@@ -1,0 +1,8 @@
+{
+  "reference_control_insightface_cosine": 0.5357098794284512,
+  "reference_treatment_insightface_cosine": 0.6583829489518275,
+  "rendered_3d_control_insightface_cosine": 0.4514405945960272,
+  "rendered_3d_treatment_insightface_cosine": 0.8551951488620125,
+  "treatment_minus_control": 0.12267306952337631,
+  "rendered_3d_treatment_minus_control": 0.40375455426598533
+}

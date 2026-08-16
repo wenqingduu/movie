@@ -1,0 +1,26 @@
+{
+  "source_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+  "render_image": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_m1p2_pitch_m3p6_roll_m1p3_222x310_237_289.png",
+  "input_face_pose": {
+    "pitch": -3.627469301223755,
+    "yaw": -1.2434370517730713,
+    "roll": -1.319959044456482
+  },
+  "camera": {
+    "yaw": -1.2434,
+    "pitch": -3.6275,
+    "roll": -1.32,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 271.2434,
+    "elevation": 3.6275
+  },
+  "target_face_bbox": [
+    126.0,
+    134.0,
+    348.0,
+    444.0
+  ],
+  "render_size": 1024,
+  "renderer": "FaceLift GaussianModel/render_opencv_cam"
+}

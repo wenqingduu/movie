@@ -55,6 +55,23 @@ REFERENCE_PROMPT = (
     "soft even light, plain gray background, photorealistic"
 )
 INNER_FACE_LABELS = (1, 2, 3, 4, 5, 10, 11, 12, 13)
+CONSERVATIVE_MASK_POLICY = {
+    "name": "conservative_inner_face_v2",
+    "center_y_fraction": 0.55,
+    "radius_x_fraction": 0.43,
+    "radius_y_fraction": 0.43,
+    "top_fraction": 0.16,
+    "bottom_fraction": 0.90,
+    "erosion_fraction": 0.02,
+    "feather_radius_px": 2.0,
+    "excluded_regions": [
+        "hairline_and_upper_forehead",
+        "temples",
+        "outer_cheeks",
+        "chin_edge",
+        "ears_and_earrings",
+    ],
+}
 
 
 class _LocalCLIPEmbedder(HFEmbedder):
@@ -263,6 +280,41 @@ def _semantic_inner_face_mask(
     return Image.fromarray((canvas.numpy() * 255).astype(np.uint8), mode="L")
 
 
+def _conservative_face_core_mask(mask: Image.Image, face_bbox: list[int]) -> Image.Image:
+    """Restrict a semantic face mask to a conservative, scale-aware facial core.
+
+    Face parsing already excludes ears, earrings, hair, neck, and clothing. The
+    additional oval support and small erosion keep the skin class away from the
+    hairline, temples, outer cheeks, and chin boundary where a rendered-domain
+    mismatch is most visible.
+    """
+    values = np.asarray(mask.convert("L"), dtype=np.uint8)
+    x1, y1, x2, y2 = [float(value) for value in face_bbox]
+    face_width = max(1.0, x2 - x1)
+    face_height = max(1.0, y2 - y1)
+    center_x = (x1 + x2) / 2.0
+    center_y = y1 + CONSERVATIVE_MASK_POLICY["center_y_fraction"] * face_height
+    radius_x = CONSERVATIVE_MASK_POLICY["radius_x_fraction"] * face_width
+    radius_y = CONSERVATIVE_MASK_POLICY["radius_y_fraction"] * face_height
+
+    yy, xx = np.ogrid[: values.shape[0], : values.shape[1]]
+    oval = ((xx - center_x) / radius_x) ** 2 + ((yy - center_y) / radius_y) ** 2 <= 1.0
+    vertical_window = (
+        (yy >= y1 + CONSERVATIVE_MASK_POLICY["top_fraction"] * face_height)
+        & (yy <= y1 + CONSERVATIVE_MASK_POLICY["bottom_fraction"] * face_height)
+    )
+    restricted = np.where(oval & vertical_window, values, 0).astype(np.uint8)
+
+    erosion_radius = max(
+        1,
+        int(round(min(face_width, face_height) * CONSERVATIVE_MASK_POLICY["erosion_fraction"])),
+    )
+    kernel_size = erosion_radius * 2 + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    restricted = cv2.erode(restricted, kernel, iterations=1)
+    return Image.fromarray(restricted, mode="L")
+
+
 def _token_mask(mask: Image.Image, height: int, width: int, device, dtype):
     token_h = math.ceil(height / 16)
     token_w = math.ceil(width / 16)
@@ -290,7 +342,15 @@ def _encode(ae, image: Image.Image, height: int, width: int, device: torch.devic
     return rearrange(latent, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
 
 
-def _velocity(model, state, conditioning, timestep: float, guidance: float, id_embedding):
+def _velocity(
+    model,
+    state,
+    conditioning,
+    timestep: float,
+    guidance: float,
+    id_embedding,
+    id_weight: float,
+):
     t_vec = torch.full((state.shape[0],), timestep, dtype=state.dtype, device=state.device)
     guidance_vec = torch.full((state.shape[0],), guidance, dtype=state.dtype, device=state.device)
     return model(
@@ -302,7 +362,7 @@ def _velocity(model, state, conditioning, timestep: float, guidance: float, id_e
         timesteps=t_vec,
         guidance=guidance_vec,
         id=id_embedding,
-        id_weight=1.0,
+        id_weight=id_weight,
         aggressive_offload=False,
     )
 
@@ -314,6 +374,7 @@ def _reference_trajectory(
     timesteps: list[float],
     guidance: float,
     id_embedding,
+    id_weight: float,
     cache_mask,
 ):
     """Integrate the FLUX vector field from t=0 to t=1."""
@@ -327,7 +388,9 @@ def _reference_trajectory(
         for target_index in range(len(timesteps) - 2, -1, -1):
             t_current = timesteps[target_index + 1]
             t_next = timesteps[target_index]
-            pred = _velocity(model, current, conditioning, t_current, guidance, id_embedding)
+            pred = _velocity(
+                model, current, conditioning, t_current, guidance, id_embedding, id_weight
+            )
             current = current + (t_next - t_current) * pred
             trajectory[target_index] = current.detach().clone() * support
     return trajectory
@@ -501,12 +564,28 @@ def run(args) -> Path:
         with torch.inference_mode():
             for step in range(args.inject_start):
                 t, t_next = timesteps[step], timesteps[step + 1]
-                pred = _velocity(model, current, target_cond, t, args.guidance, id_embedding)
+                pred = _velocity(
+                    model,
+                    current,
+                    target_cond,
+                    t,
+                    args.guidance,
+                    id_embedding,
+                    args.pulid_id_weight,
+                )
                 current = current + (t_next - t) * pred
                 step_logs.append({"step": step, "timestep": t, "injected": False})
 
             detect_t = timesteps[args.inject_start]
-            detect_pred = _velocity(model, current, target_cond, detect_t, args.guidance, id_embedding)
+            detect_pred = _velocity(
+                model,
+                current,
+                target_cond,
+                detect_t,
+                args.guidance,
+                id_embedding,
+                args.pulid_id_weight,
+            )
             pred_x0 = current - detect_t * detect_pred
             preview = _decode(ae, pred_x0, args.height, args.width, device)
             preview.save(step_dir / "pred_x0.png")
@@ -544,7 +623,13 @@ def run(args) -> Path:
                 actual_inject_start += 1
                 detect_t = timesteps[actual_inject_start]
                 detect_pred = _velocity(
-                    model, current, target_cond, detect_t, args.guidance, id_embedding
+                    model,
+                    current,
+                    target_cond,
+                    detect_t,
+                    args.guidance,
+                    id_embedding,
+                    args.pulid_id_weight,
                 )
                 pred_x0 = current - detect_t * detect_pred
                 preview = _decode(ae, pred_x0, args.height, args.width, device)
@@ -563,6 +648,12 @@ def run(args) -> Path:
                 "detection_failures": detection_failures,
             },
         )
+        absolute_yaw = abs(pose[1])
+        if not args.min_abs_yaw <= absolute_yaw <= args.max_abs_yaw:
+            raise RuntimeError(
+                f"Detected absolute yaw {absolute_yaw:.4f} degrees is outside the required "
+                f"range [{args.min_abs_yaw:.4f}, {args.max_abs_yaw:.4f}]"
+            )
 
         if facelift_asset:
             # Reuse the main experiment's continuous Gaussian renderer.  The
@@ -628,17 +719,25 @@ def run(args) -> Path:
         _write_json(step_dir / "alignment.json", align_meta)
 
         pulid.face_helper.face_parse.to(device)
-        target_mask = _semantic_inner_face_mask(preview, target_bbox, pulid.face_helper.face_parse, device)
+        target_semantic_mask = _semantic_inner_face_mask(
+            preview, target_bbox, pulid.face_helper.face_parse, device
+        )
         aligned_face = _largest_face(pulid.app, aligned_reference)
         aligned_bbox = _bbox(aligned_face, aligned_reference.width, aligned_reference.height)
-        reference_mask = _semantic_inner_face_mask(
+        reference_semantic_mask = _semantic_inner_face_mask(
             aligned_reference, aligned_bbox, pulid.face_helper.face_parse, device
         )
         pulid.face_helper.face_parse.cpu()
+        target_semantic_mask.save(step_dir / "target_semantic_inner_face_mask.png")
+        reference_semantic_mask.save(step_dir / "reference_semantic_inner_face_mask.png")
+        target_mask = _conservative_face_core_mask(target_semantic_mask, target_bbox)
+        reference_mask = _conservative_face_core_mask(reference_semantic_mask, aligned_bbox)
         target_mask.save(step_dir / "target_inner_face_mask.png")
         reference_mask.save(step_dir / "reference_inner_face_mask.png")
         intersection = np.minimum(np.asarray(target_mask), np.asarray(reference_mask)).astype(np.uint8)
-        final_mask = Image.fromarray(intersection, mode="L").filter(ImageFilter.GaussianBlur(radius=2.0))
+        final_mask = Image.fromarray(intersection, mode="L").filter(
+            ImageFilter.GaussianBlur(radius=CONSERVATIVE_MASK_POLICY["feather_radius_px"])
+        )
         final_mask.save(step_dir / "final_inner_face_mask.png")
         packed_mask = _token_mask(final_mask, args.height, args.width, device, current.dtype)
 
@@ -651,6 +750,7 @@ def run(args) -> Path:
             timesteps,
             args.guidance,
             id_embedding,
+            args.pulid_id_weight,
             packed_mask,
         )
         _write_json(
@@ -670,12 +770,24 @@ def run(args) -> Path:
             for step in range(actual_inject_start, args.steps):
                 t, t_next = timesteps[step], timesteps[step + 1]
                 control_pred = detect_pred if step == actual_inject_start else _velocity(
-                    model, control, target_cond, t, args.guidance, id_embedding
+                    model,
+                    control,
+                    target_cond,
+                    t,
+                    args.guidance,
+                    id_embedding,
+                    args.pulid_id_weight,
                 )
                 control_next = control + (t_next - t) * control_pred
 
                 treatment_pred = detect_pred if step == actual_inject_start else _velocity(
-                    model, treatment, target_cond, t, args.guidance, id_embedding
+                    model,
+                    treatment,
+                    target_cond,
+                    t,
+                    args.guidance,
+                    id_embedding,
+                    args.pulid_id_weight,
                 )
                 treatment_base = treatment + (t_next - t) * treatment_pred
                 reference_next = trajectory[step + 1].to(device=device, dtype=treatment_base.dtype)
@@ -747,12 +859,14 @@ def run(args) -> Path:
                 "steps": args.steps,
                 "guidance": args.guidance,
                 "true_cfg": 1.0,
-                "pulid_id_weight": 1.0,
+                "pulid_id_weight": args.pulid_id_weight,
                 "pulid_start_step": 0,
                 "plugin_start_step": args.inject_start,
                 "plugin_actual_start_step": actual_inject_start,
                 "plugin_strength": args.injection_strength,
-                "mask_type": "inner_face",
+                "required_absolute_yaw_range": [args.min_abs_yaw, args.max_abs_yaw],
+                "mask_type": CONSERVATIVE_MASK_POLICY["name"],
+                "mask_policy": CONSERVATIVE_MASK_POLICY,
                 "fp8": args.fp8,
                 "reference_image": str(reference_path),
                 "reference_image_sha256": _sha256(reference_path),
@@ -818,27 +932,51 @@ def parse_args():
         default=False,
         help="Record whether the reference image was generated by this project",
     )
-    parser.add_argument("--output-dir", default=str(PROJECT_ROOT / "experiment_output" / "pulid_flux_smoke"))
+    parser.add_argument(
+        "--output-dir",
+        default=str(PROJECT_ROOT / "experiment_output" / "pulid_flux_conservative_mask_04"),
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--reference-prompt", default=REFERENCE_PROMPT)
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=640)
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--inject-start", type=int, default=30)
-    parser.add_argument("--injection-strength", type=float, default=0.6)
+    parser.add_argument(
+        "--injection-strength",
+        type=float,
+        default=0.4,
+        help="Fixed at 0.4 for the conservative-mask experiment",
+    )
     parser.add_argument("--guidance", type=float, default=4.0)
+    parser.add_argument("--pulid-id-weight", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=20260815)
     parser.add_argument("--max-sequence-length", type=int, default=128)
     parser.add_argument("--onnx-provider", choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--min-face-confidence", type=float, default=0.5)
+    parser.add_argument(
+        "--min-abs-yaw",
+        type=float,
+        default=0.0,
+        help="Reject the run at detection time when absolute yaw is below this value",
+    )
+    parser.add_argument(
+        "--max-abs-yaw",
+        type=float,
+        default=180.0,
+        help="Reject the run at detection time when absolute yaw is above this value",
+    )
     parser.add_argument("--fp8", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--build-facelift", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     if args.steps != 50 or args.inject_start != 30:
         raise ValueError("This experiment is fixed to 50 steps with injection starting at step 30")
-    allowed_strengths = (0.6, 0.4)
-    if not any(abs(args.injection_strength - value) <= 1e-8 for value in allowed_strengths):
-        raise ValueError("Injection strength must be 0.6 (primary) or 0.4 (diagnostic)")
+    if abs(args.injection_strength - 0.4) > 1e-8:
+        raise ValueError("Injection strength is fixed to 0.4 for the conservative-mask experiment")
+    if args.pulid_id_weight < 0:
+        raise ValueError("PuLID id weight must be non-negative")
+    if args.min_abs_yaw < 0 or args.max_abs_yaw < args.min_abs_yaw:
+        raise ValueError("Yaw bounds must satisfy 0 <= min_abs_yaw <= max_abs_yaw")
     return args
 
 
