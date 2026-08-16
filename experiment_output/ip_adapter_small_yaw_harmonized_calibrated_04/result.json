@@ -7,8 +7,6 @@
   "fork_step": 30,
   "ip_adapter_scale": 0.6,
   "injection_lambda": 0.4,
-  "attention_scale": 0.85,
-  "effective_self_attention_strength": 0.34,
   "effective_trajectory_residual_strength": 0.4,
   "dynamic_3d_ip_adapter_enabled": false,
   "harmonize_reference": true,
@@ -20,7 +18,7 @@
     "illumination_strength": 0.8,
     "gain_min": 0.1,
     "gain_max": 1.7,
-    "inward_feather_px": 16.0,
+    "inward_feather_px": 16,
     "reference_conditioning": "target_prompt",
     "sigma_px": 42.21,
     "skin_erosion_radius_px": 12,
@@ -72,8 +70,8 @@
     "detection_source": "antelopev2"
   },
   "yaw_gate": {
-    "minimum_absolute_yaw": 0.0,
-    "maximum_absolute_yaw": 15.0,
+    "minimum_absolute_yaw": 0,
+    "maximum_absolute_yaw": 15,
     "detected_yaw": -2.1247,
     "accepted": true
   },
@@ -116,7 +114,7 @@
     "reference_crop_meta_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.reference_match_1p00_469x653_525_436.meta.json",
     "reference_mask_source": "insightface",
     "reference_layout_mode": "match_target_scale",
-    "reference_face_scale_ratio": 1.0,
+    "reference_face_scale_ratio": 1,
     "reference_to_target_face_scale": [
       0.9571,
       1.0008
@@ -152,13 +150,11 @@
     "shared_step_x0": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/shared/step_30_x0.png",
     "branches": {
       "ip_adapter_baseline": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_baseline.png",
-      "ip_adapter_plus_self_attention": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_plus_self_attention.png",
       "ip_adapter_plus_pulid_style_residual": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_plus_pulid_style_residual.png"
     }
   },
   "branch_definition": {
     "ip_adapter_baseline": "original portrait IP-Adapter only",
-    "ip_adapter_plus_self_attention": "original portrait IP-Adapter plus local 3D masked mutual self-attention",
     "ip_adapter_plus_pulid_style_residual": "original portrait IP-Adapter plus local same-timestep 3D trajectory residual"
   },
   "metrics": {
@@ -181,30 +177,8 @@
         },
         "detection_source": "antelopev2"
       },
-      "whole_image_rgb_mae_vs_baseline": 0.0,
-      "target_face_bbox_rgb_mae_vs_baseline": 0.0
-    },
-    "ip_adapter_plus_self_attention": {
-      "reference_portrait_cosine": 0.340396,
-      "continuous_3d_render_cosine": 0.325771,
-      "face_detected": true,
-      "final_face": {
-        "face_id": "face_0",
-        "face_bbox": [
-          290.34,
-          112.11,
-          764.39,
-          763.01
-        ],
-        "pose": {
-          "pitch": -1.0351,
-          "yaw": -2.57,
-          "roll": -0.1733
-        },
-        "detection_source": "antelopev2"
-      },
-      "whole_image_rgb_mae_vs_baseline": 1.140401,
-      "target_face_bbox_rgb_mae_vs_baseline": 2.406666
+      "whole_image_rgb_mae_vs_baseline": 0,
+      "target_face_bbox_rgb_mae_vs_baseline": 0
     },
     "ip_adapter_plus_pulid_style_residual": {
       "reference_portrait_cosine": 0.713831,

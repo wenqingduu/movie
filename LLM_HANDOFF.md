@@ -1,6 +1,6 @@
 # 3D 人脸注入实验大模型交接文档
 
-> 最后更新：2026-08-16。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`；不要重新下载模型，也不要从旧的像素合成或 self-attention 实验重新开始。
+> 最后更新：2026-08-16。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`；不要重新下载模型。reference self-attention 策略已从代码和最终结果中删除，不要恢复。
 
 ## 1. 当前任务状态
 
@@ -24,6 +24,7 @@
 
 - PuLID-FLUX 主实验：`multishot/pulid_flux_inner_face_experiment.py`
 - IP-Adapter trajectory residual 实验：`multishot/ip_adapter_pulid_style_injection_experiment.py`
+- IP-Adapter 实验公共评估工具：`multishot/ip_adapter_experiment_utils.py`
 - SDXL/IP-Adapter 后端：`multishot/diffusion_backend.py`
 - FaceLift 连续渲染与姿态标定接入：`multishot/mcp_asset_server.py`
 - 姿态标定生成器：`multishot/facelift_pose_calibration.py`
@@ -122,7 +123,7 @@ IP-Adapter 旧版只有几何椭圆，会在小角度额头注入 3D 头发。�
 - `ip_adapter_small_yaw_harmonized_calibrated_04/`：IP-Adapter 小角度最终组。
 - `ip_adapter_high_yaw_harmonized_calibrated_04/`：IP-Adapter 大角度最终组。
 
-每个最终实验目录包含：输入/纯 3D 调色诊断图、mask、Control/Baseline、Treatment/residual、结构化指标和逐步数值日志。pure-3D 模式不保存旧的 `pred_x0` 像素合成图，避免将诊断分支误认为 AE/VAE 输入。
+每个最终实验目录包含：输入/纯 3D 调色诊断图、mask、Control/Baseline、Treatment/residual、结构化指标和逐步数值日志。IP-Adapter 目录只保留 baseline 与 trajectory residual，不再包含 self-attention 分支。pure-3D 模式不保存旧的 `pred_x0` 像素合成图，避免将诊断分支误认为 AE/VAE 输入。
 
 ## 6. 已清理的结果
 
@@ -138,6 +139,10 @@ IP-Adapter 旧版只有几何椭圆，会在小角度额头注入 3D 头发。�
 可恢复位置：
 
 `/root/.local/share/Trash/files/movie_obsolete_experiments_20260816_2/`
+
+随后从两组最终 IP-Adapter 输出中移除的 4 个 self-attention 分支文件可恢复于：
+
+`/root/.local/share/Trash/files/movie_retired_self_attention_20260816/`
 
 Git 中相应旧结果会表现为删除，这是预期状态。
 
@@ -254,6 +259,7 @@ export PYTHONPATH="$PWD"
 ## 11. 交接检查清单
 
 - 不要恢复旧像素合成路径作为默认方案。
+- 不要恢复 reference self-attention processor、实验分支或参数；IP-Adapter 局部注入只保留 trajectory residual。
 - 不要用 skin label 作为最终调色应用 mask；它会漏掉鼻子和五官边缘。
 - 不要让 IP-Adapter 回退到 geometric-only 注入 mask。
 - 不要按绝对 yaw 选择缓存侧脸；必须根据带符号 pose 连续渲染。

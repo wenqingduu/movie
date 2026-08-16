@@ -1,4 +1,4 @@
-"""Compare IP-Adapter self-attention with PuLID-style trajectory residual injection."""
+"""Compare IP-Adapter baseline with harmonized 3D trajectory residual injection."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from multishot.diffusion_backend import OpenSourceDiffusionBackend
-from multishot.ip_adapter_self_attention_experiment import (
+from multishot.ip_adapter_experiment_utils import (
     DEFAULT_PROMPT,
     PROJECT_ROOT,
     _compact_state,
@@ -213,7 +213,6 @@ def run(args) -> dict:
     os.environ["MULTISHOT_REFERENCE_LAYOUT_MODE"] = "match_target_scale"
     os.environ["MULTISHOT_REFERENCE_FACE_SCALE_RATIO"] = str(args.reference_scale)
     os.environ["MULTISHOT_REFERENCE_CROP_SIZE"] = "1024"
-    os.environ["MULTISHOT_ATTENTION_INJECTION_SCALE"] = str(args.attention_scale)
     os.environ["MULTISHOT_TRAJECTORY_INJECTION_SCALE"] = "1.0"
 
     input_dir = output / "input"
@@ -301,11 +300,11 @@ def run(args) -> dict:
         "targets": [target],
     }
 
-    # Dynamic 3D IP-Adapter is disabled in every branch. The original portrait
-    # remains the same global IP-Adapter condition; only the local 3D operator changes.
+    # Dynamic 3D IP-Adapter is disabled in both branches. The original portrait
+    # remains the same global IP-Adapter condition; the treatment adds only the
+    # harmonized local 3D trajectory residual.
     branch_specs = [
         ("ip_adapter_baseline", "off", {"lambda": 0.0, "targets": []}),
-        ("ip_adapter_plus_self_attention", "attention", injection_plan),
         ("ip_adapter_plus_pulid_style_residual", "trajectory_residual", injection_plan),
     ]
     branch_outputs: dict[str, Path] = {}
@@ -357,7 +356,6 @@ def run(args) -> dict:
             ),
             (f"shared x0 at step {args.fork_step}", shared_path),
             ("IP-Adapter baseline", branch_outputs["ip_adapter_baseline"]),
-            ("IP-Adapter + masked self-attention", branch_outputs["ip_adapter_plus_self_attention"]),
             ("IP-Adapter + PuLID-style residual", branch_outputs["ip_adapter_plus_pulid_style_residual"]),
         ],
         contact_sheet,
@@ -372,8 +370,6 @@ def run(args) -> dict:
         "fork_step": args.fork_step,
         "ip_adapter_scale": args.ip_adapter_scale,
         "injection_lambda": args.injection_lambda,
-        "attention_scale": args.attention_scale,
-        "effective_self_attention_strength": round(args.injection_lambda * args.attention_scale, 4),
         "effective_trajectory_residual_strength": args.injection_lambda,
         "dynamic_3d_ip_adapter_enabled": False,
         "harmonize_reference": args.harmonize_reference,
@@ -418,7 +414,6 @@ def run(args) -> dict:
         },
         "branch_definition": {
             "ip_adapter_baseline": "original portrait IP-Adapter only",
-            "ip_adapter_plus_self_attention": "original portrait IP-Adapter plus local 3D masked mutual self-attention",
             "ip_adapter_plus_pulid_style_residual": "original portrait IP-Adapter plus local same-timestep 3D trajectory residual",
         },
         "metrics": metrics,
@@ -441,7 +436,7 @@ def parse_args():
         default=(
             PROJECT_ROOT
             / "experiment_output"
-            / "ip_adapter_self_attention_comparison"
+            / "ip_adapter_small_yaw_harmonized_calibrated_04"
             / "input"
             / "rendered_3d_face.png"
         ),
@@ -458,7 +453,6 @@ def parse_args():
     parser.add_argument("--fork-step", type=int, default=30)
     parser.add_argument("--ip-adapter-scale", type=float, default=0.6)
     parser.add_argument("--injection-lambda", type=float, default=0.4)
-    parser.add_argument("--attention-scale", type=float, default=0.85)
     parser.add_argument("--reference-scale", type=float, default=1.0)
     parser.add_argument("--min-abs-yaw", type=float, default=0.0)
     parser.add_argument("--max-abs-yaw", type=float, default=90.0)

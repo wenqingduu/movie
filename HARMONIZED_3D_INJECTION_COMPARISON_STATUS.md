@@ -22,6 +22,8 @@
 
 四组插件分支均完成 20/20 个注入步骤，全部 finite，无 NaN/Inf。
 
+2026-08-16 后续收缩：IP-Adapter reference self-attention 策略已从后端、实验入口和最终结果中删除。两组 IP-Adapter 对照图现在均为六格，只包含输入、调色参考、共享 step-30、baseline 和 trajectory residual。
+
 ## 姿态标定验收
 
 - PuLID 小角度 `+1.3447°` 在 profile 范围外，使用原始 camera mapping；该缓存 render 的 meta 生成于标定字段接入前，因此没有 `pose_calibration` 字段。IP-Adapter 小角度 `-2.1247°` 明确记录为 `pose_outside_calibrated_profiles`。两者都没有错误套用高 yaw 补偿。
@@ -51,6 +53,10 @@
 `/root/.local/share/Trash/files/movie_obsolete_experiments_20260816_2/`
 
 其中包括旧像素合成调色、未标定高 yaw、失败 yaw probe、方向错误诊断、self-attention 旧实验，以及未调色 IP-Adapter 小/大角度结果。该操作可恢复。
+
+两组最终 IP-Adapter 目录中原有的 self-attention PNG 与逐步日志另外移到：
+
+`/root/.local/share/Trash/files/movie_retired_self_attention_20260816/`
 
 ## 代码入口
 
