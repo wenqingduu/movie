@@ -1,0 +1,233 @@
+{
+  "status": "completed",
+  "model": "sdxl-base-1.0-ip-adapter",
+  "prompt": "cinematic medium close-up portrait of a man standing beneath warm neon lights on a rainy night street, three-quarter view, natural skin texture, shallow depth of field, photorealistic, subtle rim light",
+  "seed": 42,
+  "total_steps": 50,
+  "fork_step": 30,
+  "ip_adapter_scale": 0.6,
+  "injection_lambda": 0.4,
+  "attention_scale": 0.85,
+  "effective_self_attention_strength": 0.34,
+  "effective_trajectory_residual_strength": 0.4,
+  "dynamic_3d_ip_adapter_enabled": false,
+  "harmonize_reference": true,
+  "harmonization_policy": {
+    "name": "target_low_frequency_log_rgb_v3_inner_face_apply",
+    "skin_label": 1,
+    "skin_erosion_fraction": 0.025,
+    "low_frequency_sigma_face_width_fraction": 0.09,
+    "illumination_strength": 0.8,
+    "gain_min": 0.1,
+    "gain_max": 1.7,
+    "inward_feather_px": 16.0,
+    "reference_conditioning": "target_prompt",
+    "sigma_px": 42.21,
+    "skin_erosion_radius_px": 12,
+    "skin_support_pixels": 123823,
+    "applied_gain_mean_rgb": [
+      1.1450694799423218,
+      1.1144073009490967,
+      0.9588783383369446
+    ],
+    "applied_gain_min_rgb": [
+      0.5614950060844421,
+      0.5539764165878296,
+      0.47826701402664185
+    ],
+    "applied_gain_max_rgb": [
+      1.5288296937942505,
+      1.5288296937942505,
+      1.5288296937942505
+    ],
+    "reference_mode": "pure_3d",
+    "estimation_mask": "target/reference skin-label intersection",
+    "application_mask": "target/reference complete inner-face intersection",
+    "target_bbox": [
+      291,
+      109,
+      760,
+      762
+    ],
+    "reference_bbox": [
+      295,
+      115,
+      751,
+      761
+    ]
+  },
+  "target_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      290.59,
+      108.78,
+      759.7,
+      762.26
+    ],
+    "pose": {
+      "pitch": -0.4158,
+      "yaw": -2.1247,
+      "roll": 0.064
+    },
+    "detection_source": "antelopev2"
+  },
+  "yaw_gate": {
+    "minimum_absolute_yaw": 0.0,
+    "maximum_absolute_yaw": 15.0,
+    "detected_yaw": -2.1247,
+    "accepted": true
+  },
+  "continuous_3d_render_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      338.84,
+      324.57,
+      657.01,
+      786.9
+    ],
+    "pose": {
+      "pitch": -5.7712,
+      "yaw": -1.8571,
+      "roll": 0.278
+    },
+    "detection_source": "antelopev2"
+  },
+  "continuous_3d_reference": {
+    "mode": "target_pose_gaussian_render",
+    "gaussian_model": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+    "provided_render": null
+  },
+  "reference_layout": {
+    "reference_source_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.png",
+    "reference_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/harmonization/harmonized_3d_face.png",
+    "reference_mask_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.reference_match_1p00_469x653_525_436.mask.png",
+    "reference_face_bbox": [
+      301,
+      108,
+      750,
+      762
+    ],
+    "reference_crop_bbox_on_source": [
+      267,
+      221,
+      729,
+      891
+    ],
+    "reference_crop_meta_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.reference_match_1p00_469x653_525_436.meta.json",
+    "reference_mask_source": "insightface",
+    "reference_layout_mode": "match_target_scale",
+    "reference_face_scale_ratio": 1.0,
+    "reference_to_target_face_scale": [
+      0.9571,
+      1.0008
+    ],
+    "target_face_size": [
+      469.11,
+      653.48
+    ],
+    "reference_face_size_on_layout": [
+      449,
+      654
+    ],
+    "unharmonized_reference_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.reference_match_1p00_469x653_525_436.png"
+  },
+  "mask_policy": {
+    "name": "conservative_semantic_inner_face_intersection",
+    "matches_pulid_geometric_core": true,
+    "semantic_face_parser_intersection": true,
+    "documented_deviation": null
+  },
+  "trajectory_policy": {
+    "formula": "target_next += strength * mask * (reference_next - target_next)",
+    "reference_state": "VAE x0 noised with fixed reference noise at the target next scheduler timestep",
+    "final_state": "clean reference VAE x0"
+  },
+  "paths": {
+    "comparison": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/comparison.jpg",
+    "reference_portrait": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/original_reference.jpg",
+    "continuous_3d_render": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.png",
+    "scale_matched_3d_layout": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/harmonization/harmonized_3d_face.png",
+    "unharmonized_scale_matched_3d_layout": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/rendered_3d_face.reference_match_1p00_469x653_525_436.png",
+    "target_face_mask": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/input/harmonization/final_injection_mask.png",
+    "shared_step_x0": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/shared/step_30_x0.png",
+    "branches": {
+      "ip_adapter_baseline": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_baseline.png",
+      "ip_adapter_plus_self_attention": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_plus_self_attention.png",
+      "ip_adapter_plus_pulid_style_residual": "/root/autodl-tmp/movie/experiment_output/ip_adapter_small_yaw_harmonized_calibrated_04/branches/ip_adapter_plus_pulid_style_residual.png"
+    }
+  },
+  "branch_definition": {
+    "ip_adapter_baseline": "original portrait IP-Adapter only",
+    "ip_adapter_plus_self_attention": "original portrait IP-Adapter plus local 3D masked mutual self-attention",
+    "ip_adapter_plus_pulid_style_residual": "original portrait IP-Adapter plus local same-timestep 3D trajectory residual"
+  },
+  "metrics": {
+    "ip_adapter_baseline": {
+      "reference_portrait_cosine": 0.31602,
+      "continuous_3d_render_cosine": 0.31481,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          291.06,
+          113.21,
+          763.48,
+          761.94
+        ],
+        "pose": {
+          "pitch": -0.8355,
+          "yaw": -2.7397,
+          "roll": 0.0142
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 0.0,
+      "target_face_bbox_rgb_mae_vs_baseline": 0.0
+    },
+    "ip_adapter_plus_self_attention": {
+      "reference_portrait_cosine": 0.340396,
+      "continuous_3d_render_cosine": 0.325771,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          290.34,
+          112.11,
+          764.39,
+          763.01
+        ],
+        "pose": {
+          "pitch": -1.0351,
+          "yaw": -2.57,
+          "roll": -0.1733
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 1.140401,
+      "target_face_bbox_rgb_mae_vs_baseline": 2.406666
+    },
+    "ip_adapter_plus_pulid_style_residual": {
+      "reference_portrait_cosine": 0.713831,
+      "continuous_3d_render_cosine": 0.820282,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          291.42,
+          109.8,
+          758.48,
+          764.13
+        ],
+        "pose": {
+          "pitch": -3.6841,
+          "yaw": -2.6143,
+          "roll": 1.0187
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 6.667727,
+      "target_face_bbox_rgb_mae_vs_baseline": 16.236574
+    }
+  },
+  "elapsed_seconds": 128.241
+}

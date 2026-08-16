@@ -1,5 +1,7 @@
 # IP-Adapter + PuLID 式 3D Residual 大角度实验
 
+> 2026-08-16 最终更新：当前大角度结果已经同时使用 `positive_high_yaw_v1` 姿态标定、纯 3D 光照匹配和 BiSeNet 保守语义交集 mask，输出为 `experiment_output/ip_adapter_high_yaw_harmonized_calibrated_04/`。本文以下内容保留为历史记录；最终四组对比见 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`。
+
 > 给后续接手本仓库的大模型：本实验已真实完成。原始人物照片始终作为全局 IP-Adapter 条件，3D 人脸只作为 step 30～49 的局部 trajectory residual 插件；不要把结果误解为“仅使用 3D 图生成”。
 
 > 后续更新：FaceLift 大姿态 camera mapping 已完成 54 样本标定并重跑本实验。标定后 residual 最终姿态从 `24.5662/57.5780/29.0267°` 改善到 `14.1149/53.9328/10.3548°`，对原始照片 cosine 从 `0.593941` 提升到 `0.616340`。当前应优先查看 `experiment_output/ip_adapter_pulid_style_high_yaw_44_calibrated_comparison/`，完整标定说明见 `FACELIFT_POSE_CALIBRATION_STATUS.md`。

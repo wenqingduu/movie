@@ -1,0 +1,126 @@
+{
+  "prompt": "strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up",
+  "reference_prompt": "a neutral studio portrait of the same person, centered face, natural skin texture, soft even light, plain gray background, photorealistic",
+  "reference_conditioning_prompt": "strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up",
+  "reference_conditioning": "target",
+  "seed": 20260818,
+  "width": 512,
+  "height": 640,
+  "steps": 50,
+  "guidance": 4.0,
+  "true_cfg": 1.0,
+  "pulid_id_weight": 0.5,
+  "pulid_start_step": 0,
+  "plugin_start_step": 30,
+  "plugin_actual_start_step": 30,
+  "plugin_strength": 0.4,
+  "required_absolute_yaw_range": [
+    25.0,
+    45.0
+  ],
+  "harmonize_reference": true,
+  "harmonization_reference_mode": "pure_3d",
+  "harmonization_policy": {
+    "name": "target_low_frequency_log_rgb_v3_inner_face_apply",
+    "skin_label": 1,
+    "skin_erosion_fraction": 0.025,
+    "low_frequency_sigma_face_width_fraction": 0.09,
+    "illumination_strength": 0.8,
+    "gain_min": 0.1,
+    "gain_max": 1.7,
+    "inward_feather_px": 16.0,
+    "reference_conditioning": "target",
+    "sigma_px": 17.91,
+    "skin_erosion_radius_px": 5,
+    "skin_support_pixels": 28145,
+    "applied_gain_mean_rgb": [
+      0.4841192662715912,
+      0.2153480499982834,
+      0.2802588939666748
+    ],
+    "applied_gain_min_rgb": [
+      0.2343459576368332,
+      0.15848931670188904,
+      0.15848931670188904
+    ],
+    "applied_gain_max_rgb": [
+      1.1048840284347534,
+      0.5334921479225159,
+      0.8523489236831665
+    ],
+    "reference_mode": "pure_3d"
+  },
+  "mask_type": "conservative_inner_face_v2",
+  "mask_policy": {
+    "name": "conservative_inner_face_v2",
+    "center_y_fraction": 0.55,
+    "radius_x_fraction": 0.43,
+    "radius_y_fraction": 0.43,
+    "top_fraction": 0.16,
+    "bottom_fraction": 0.9,
+    "erosion_fraction": 0.02,
+    "feather_radius_px": 2.0,
+    "excluded_regions": [
+      "hairline_and_upper_forehead",
+      "temples",
+      "outer_cheeks",
+      "chin_edge",
+      "ears_and_earrings"
+    ]
+  },
+  "fp8": true,
+  "reference_image": "/root/autodl-tmp/movie/experiment_assets/pulid_reference.jpg",
+  "reference_image_sha256": "1d163eb4cc3244e063895263490ee5abc199fe915e6dae9aadbdfb435523644c",
+  "reference_image_generated": false,
+  "reference_image_origin": "downloaded_external_real_photo; original_url_not_recorded",
+  "reference_mode": "facelift_continuous_gaussian_pose_render",
+  "facelift_step_2d": 50,
+  "document_deviations": [],
+  "models": {
+    "flux": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/flux-dev-fp8.safetensors",
+      "bytes": 11910808904,
+      "sha256": "9895e46da883bee247e55cdcd65d7699b0e06e234665f79f96eb392e431ec2a8"
+    },
+    "pulid": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/pulid_flux_v0.9.1.safetensors",
+      "bytes": 1142099520,
+      "sha256": "92c41c3af322b02e58e1b32842e4601e08c8f16ec1fe80089dbe957df510f51d"
+    },
+    "ae": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/ae.safetensors",
+      "bytes": 167664710,
+      "sha256": "0c0c8ac49850d6bd174107d4001685f4f6c876768a1c84dde751f2aed69f46ce"
+    },
+    "t5_shard_1": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/xflux_text_encoders/model-00001-of-00002.safetensors",
+      "bytes": 4994582224,
+      "sha256": "ec87bffd1923e8b2774a6d240c922a41f6143081d52cf83b8fe39e9d838c893e"
+    },
+    "t5_shard_2": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/xflux_text_encoders/model-00002-of-00002.safetensors",
+      "bytes": 4530066360,
+      "sha256": "a5640855b301fcdbceddfa90ae8066cd9414aff020552a201a255ecf2059da00"
+    },
+    "clip": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/clip-vit-large-patch14/model.safetensors",
+      "bytes": 1710540580,
+      "sha256": "a2bf730a0c7debf160f7a6b50b3aaf3703e7e88ac73de7a314903141db026dcb"
+    },
+    "eva_clip": {
+      "path": "/root/autodl-tmp/movie/third_party/PuLID/models/eva_clip/EVA02_CLIP_L_336_psz14_s6B.pt",
+      "bytes": 856461210,
+      "sha256": "84c3a17a228c567a155259b2245b0b59072bf7da510260a0a02ec54de6d50b05"
+    },
+    "facelift_gslrm": {
+      "path": "/root/autodl-tmp/movie/third_party/FaceLift/checkpoints/gslrm/ckpt_0000000000021125.pt",
+      "bytes": 3723107450,
+      "sha256": "705e9aa37c7ea964bb06f25db060c12676a93d9ce6a365ac8b50128a3dc12662"
+    },
+    "facelift_unet": {
+      "path": "/root/autodl-tmp/movie/third_party/FaceLift/checkpoints/mvdiffusion/pipeckpts/unet/diffusion_pytorch_model.safetensors",
+      "bytes": 3480822704,
+      "sha256": "2389a09216381a2020ac751c58735408feb4e76797c6f2393e66c7a0cedc1629"
+    }
+  }
+}

@@ -72,6 +72,17 @@ CONSERVATIVE_MASK_POLICY = {
         "ears_and_earrings",
     ],
 }
+HARMONIZATION_POLICY = {
+    "name": "target_low_frequency_log_rgb_v3_inner_face_apply",
+    "skin_label": 1,
+    "skin_erosion_fraction": 0.025,
+    "low_frequency_sigma_face_width_fraction": 0.09,
+    "illumination_strength": 0.8,
+    "gain_min": 0.1,
+    "gain_max": 1.7,
+    "inward_feather_px": 16.0,
+    "reference_conditioning": "target_prompt",
+}
 
 
 class _LocalCLIPEmbedder(HFEmbedder):
@@ -258,6 +269,7 @@ def _semantic_inner_face_mask(
     face_bbox: list[int],
     parsing_model,
     device: torch.device,
+    included_labels: tuple[int, ...] = INNER_FACE_LABELS,
 ) -> Image.Image:
     crop_bbox = _expanded_square(face_bbox, image.width, image.height)
     crop = image.crop(tuple(crop_bbox)).convert("RGB").resize((512, 512), Image.Resampling.LANCZOS)
@@ -267,7 +279,7 @@ def _semantic_inner_face_mask(
         logits = parsing_model(tensor)[0]
         labels = logits.argmax(dim=1, keepdim=True)
         keep = torch.zeros_like(labels, dtype=torch.bool)
-        for label in INNER_FACE_LABELS:
+        for label in included_labels:
             keep |= labels == label
         mask = keep.float()
         mask = F.interpolate(
@@ -313,6 +325,139 @@ def _conservative_face_core_mask(mask: Image.Image, face_bbox: list[int]) -> Ima
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     restricted = cv2.erode(restricted, kernel, iterations=1)
     return Image.fromarray(restricted, mode="L")
+
+
+def _srgb_to_linear(values: np.ndarray) -> np.ndarray:
+    return np.where(
+        values <= 0.04045,
+        values / 12.92,
+        ((values + 0.055) / 1.055) ** 2.4,
+    )
+
+
+def _linear_to_srgb(values: np.ndarray) -> np.ndarray:
+    return np.where(
+        values <= 0.0031308,
+        values * 12.92,
+        1.055 * np.maximum(values, 0.0) ** (1.0 / 2.4) - 0.055,
+    )
+
+
+def _masked_gaussian_blur(values: np.ndarray, mask: np.ndarray, sigma: float) -> tuple[np.ndarray, np.ndarray]:
+    weights = cv2.GaussianBlur(mask, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    weighted = cv2.GaussianBlur(values * mask[..., None], (0, 0), sigmaX=sigma, sigmaY=sigma)
+    return weighted / np.maximum(weights[..., None], 1e-4), weights
+
+
+def _harmonize_reference(
+    aligned_reference: Image.Image,
+    target_preview: Image.Image,
+    skin_mask: Image.Image,
+    color_application_mask: Image.Image,
+    core_mask: Image.Image,
+    target_bbox: list[int],
+) -> tuple[Image.Image, dict[str, Image.Image], dict]:
+    """Estimate illumination on skin and apply it across the complete inner face."""
+    render = np.asarray(aligned_reference.convert("RGB"), dtype=np.float32) / 255.0
+    target = np.asarray(target_preview.convert("RGB"), dtype=np.float32) / 255.0
+    skin = np.asarray(skin_mask.convert("L"), dtype=np.uint8)
+    color_application = np.asarray(color_application_mask.convert("L"), dtype=np.uint8)
+    core = np.asarray(core_mask.convert("L"), dtype=np.uint8)
+
+    face_width = max(1.0, float(target_bbox[2] - target_bbox[0]))
+    face_height = max(1.0, float(target_bbox[3] - target_bbox[1]))
+    erosion_radius = max(
+        1,
+        int(round(min(face_width, face_height) * HARMONIZATION_POLICY["skin_erosion_fraction"])),
+    )
+    erosion_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (erosion_radius * 2 + 1, erosion_radius * 2 + 1)
+    )
+    color_support = cv2.erode(
+        np.where(skin > 0, 255, 0).astype(np.uint8),
+        erosion_kernel,
+        iterations=1,
+    )
+    color_weights = color_support.astype(np.float32) / 255.0
+    if int((color_support > 0).sum()) < 64:
+        raise RuntimeError("Harmonization skin support is too small")
+
+    sigma = max(
+        1.0,
+        face_width * HARMONIZATION_POLICY["low_frequency_sigma_face_width_fraction"],
+    )
+    epsilon = 1e-4
+    render_log = np.log(np.maximum(_srgb_to_linear(render), epsilon))
+    target_log = np.log(np.maximum(_srgb_to_linear(target), epsilon))
+    render_low, blurred_support = _masked_gaussian_blur(render_log, color_weights, sigma)
+    target_low, _ = _masked_gaussian_blur(target_log, color_weights, sigma)
+
+    log_gain_min = math.log(HARMONIZATION_POLICY["gain_min"])
+    log_gain_max = math.log(HARMONIZATION_POLICY["gain_max"])
+    illumination_delta = np.clip(target_low - render_low, log_gain_min, log_gain_max)
+    illumination_delta[blurred_support < 0.02] = 0.0
+    hard_application = (color_application > 0).astype(np.uint8)
+    application_distance = cv2.distanceTransform(hard_application, cv2.DIST_L2, 5)
+    color_blend = np.clip(
+        application_distance / HARMONIZATION_POLICY["inward_feather_px"], 0.0, 1.0
+    )
+    applied_delta = HARMONIZATION_POLICY["illumination_strength"] * illumination_delta
+
+    # Fade the color correction itself to zero only at the outer inner-face
+    # boundary. Eyebrows, eyes, nose, mouth, and lips are intentionally part of
+    # this application mask even though they are excluded from gain estimation.
+    # This is still a pure 3D image: every output pixel comes from the render, and
+    # pred_x0 contributes only the estimated low-frequency log-RGB gain.
+    pure_3d_linear = np.exp(render_log + applied_delta * color_blend[..., None])
+    harmonized_pure_3d = np.clip(_linear_to_srgb(pure_3d_linear), 0.0, 1.0)
+
+    # Preserve the earlier pixel-composite ablation as an explicit optional
+    # mode, without using it for the pure_3d trajectory.
+    hard_core = (core > 0).astype(np.uint8)
+    core_distance = cv2.distanceTransform(hard_core, cv2.DIST_L2, 5)
+    composite_blend = np.clip(
+        core_distance / HARMONIZATION_POLICY["inward_feather_px"], 0.0, 1.0
+    )
+    corrected_linear = np.exp(render_log + applied_delta)
+    corrected = np.clip(_linear_to_srgb(corrected_linear), 0.0, 1.0)
+    corrected = np.where(hard_core[..., None] > 0, corrected, render)
+    composite = target * (1.0 - composite_blend[..., None]) + corrected * composite_blend[..., None]
+
+    gain = np.exp(applied_delta)
+    gain_visualization = np.clip(
+        (gain - HARMONIZATION_POLICY["gain_min"])
+        / (HARMONIZATION_POLICY["gain_max"] - HARMONIZATION_POLICY["gain_min"]),
+        0.0,
+        1.0,
+    )
+    images = {
+        "harmonization_color_mask.png": Image.fromarray(color_support, mode="L"),
+        "harmonization_application_mask.png": Image.fromarray(
+            (hard_application * 255).astype(np.uint8), mode="L"
+        ),
+        "harmonization_blend_mask.png": Image.fromarray(
+            (composite_blend * 255.0).astype(np.uint8), mode="L"
+        ),
+        "harmonization_color_blend_mask.png": Image.fromarray(
+            (color_blend * 255.0).astype(np.uint8), mode="L"
+        ),
+        "illumination_gain.png": Image.fromarray((gain_visualization * 255.0).astype(np.uint8), mode="RGB"),
+        "harmonized_3d_face.png": Image.fromarray(
+            (harmonized_pure_3d * 255.0).astype(np.uint8), mode="RGB"
+        ),
+        "harmonized_reference.png": Image.fromarray((composite * 255.0).astype(np.uint8), mode="RGB"),
+    }
+    supported_gain = gain[color_support > 0]
+    metadata = {
+        **HARMONIZATION_POLICY,
+        "sigma_px": sigma,
+        "skin_erosion_radius_px": erosion_radius,
+        "skin_support_pixels": int((color_support > 0).sum()),
+        "applied_gain_mean_rgb": [float(value) for value in supported_gain.mean(axis=0)],
+        "applied_gain_min_rgb": [float(value) for value in supported_gain.min(axis=0)],
+        "applied_gain_max_rgb": [float(value) for value in supported_gain.max(axis=0)],
+    }
+    return images["harmonized_reference.png"], images, metadata
 
 
 def _token_mask(mask: Image.Image, height: int, width: int, device, dtype):
@@ -541,7 +686,11 @@ def run(args) -> Path:
         t5.to(device)
         clip.to(device)
         target_cond = prepare(t5=t5, clip=clip, img=noise, prompt=args.prompt)
-        reference_cond = prepare(t5=t5, clip=clip, img=noise, prompt=args.reference_prompt)
+        reference_cond = (
+            target_cond
+            if args.reference_conditioning == "target"
+            else prepare(t5=t5, clip=clip, img=noise, prompt=args.reference_prompt)
+        )
         t5.cpu()
         clip.cpu()
         del t5, clip
@@ -731,10 +880,32 @@ def run(args) -> Path:
         target_semantic_mask = _semantic_inner_face_mask(
             preview, target_bbox, pulid.face_helper.face_parse, device
         )
+        target_skin_mask = (
+            _semantic_inner_face_mask(
+                preview,
+                target_bbox,
+                pulid.face_helper.face_parse,
+                device,
+                included_labels=(HARMONIZATION_POLICY["skin_label"],),
+            )
+            if args.harmonize_reference
+            else None
+        )
         aligned_face = _largest_face(pulid.app, aligned_reference)
         aligned_bbox = _bbox(aligned_face, aligned_reference.width, aligned_reference.height)
         reference_semantic_mask = _semantic_inner_face_mask(
             aligned_reference, aligned_bbox, pulid.face_helper.face_parse, device
+        )
+        reference_skin_mask = (
+            _semantic_inner_face_mask(
+                aligned_reference,
+                aligned_bbox,
+                pulid.face_helper.face_parse,
+                device,
+                included_labels=(HARMONIZATION_POLICY["skin_label"],),
+            )
+            if args.harmonize_reference
+            else None
         )
         pulid.face_helper.face_parse.cpu()
         target_semantic_mask.save(step_dir / "target_semantic_inner_face_mask.png")
@@ -750,7 +921,50 @@ def run(args) -> Path:
         final_mask.save(step_dir / "final_inner_face_mask.png")
         packed_mask = _token_mask(final_mask, args.height, args.width, device, current.dtype)
 
-        reference_x0 = _encode(ae, aligned_reference, args.height, args.width, device).to(current.dtype)
+        trajectory_reference = aligned_reference
+        harmonization_metadata = None
+        if args.harmonize_reference:
+            target_skin_mask.save(step_dir / "target_skin_mask.png")
+            reference_skin_mask.save(step_dir / "reference_skin_mask.png")
+            skin_intersection = Image.fromarray(
+                np.minimum(np.asarray(target_skin_mask), np.asarray(reference_skin_mask)).astype(np.uint8),
+                mode="L",
+            )
+            skin_intersection.save(step_dir / "skin_intersection_mask.png")
+            color_application_mask = Image.fromarray(
+                np.minimum(
+                    np.asarray(target_semantic_mask),
+                    np.asarray(reference_semantic_mask),
+                ).astype(np.uint8),
+                mode="L",
+            )
+            composite_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
+                aligned_reference,
+                preview,
+                skin_intersection,
+                color_application_mask,
+                Image.fromarray(intersection, mode="L"),
+                target_bbox,
+            )
+            if args.harmonization_reference_mode == "pure_3d":
+                # pred_x0 supplies only the low-frequency color/illumination
+                # estimate.  Do not mix any target pixels into the image that
+                # is encoded for the reference trajectory.
+                trajectory_reference = harmonization_images["harmonized_3d_face.png"]
+            else:
+                trajectory_reference = composite_reference
+            harmonization_metadata["reference_conditioning"] = args.reference_conditioning
+            harmonization_metadata["reference_mode"] = args.harmonization_reference_mode
+            for filename, image in harmonization_images.items():
+                if args.harmonization_reference_mode == "pure_3d" and filename in {
+                    "harmonization_blend_mask.png",
+                    "harmonized_reference.png",
+                }:
+                    continue
+                image.save(step_dir / filename)
+            _write_json(step_dir / "harmonization.json", harmonization_metadata)
+
+        reference_x0 = _encode(ae, trajectory_reference, args.height, args.width, device).to(current.dtype)
         trajectory_started = time.perf_counter()
         trajectory = _reference_trajectory(
             model,
@@ -871,6 +1085,10 @@ def run(args) -> Path:
             {
                 "prompt": args.prompt,
                 "reference_prompt": args.reference_prompt,
+                "reference_conditioning_prompt": (
+                    args.prompt if args.reference_conditioning == "target" else args.reference_prompt
+                ),
+                "reference_conditioning": args.reference_conditioning,
                 "seed": args.seed,
                 "width": args.width,
                 "height": args.height,
@@ -883,6 +1101,9 @@ def run(args) -> Path:
                 "plugin_actual_start_step": actual_inject_start,
                 "plugin_strength": args.injection_strength,
                 "required_absolute_yaw_range": [args.min_abs_yaw, args.max_abs_yaw],
+                "harmonize_reference": args.harmonize_reference,
+                "harmonization_reference_mode": args.harmonization_reference_mode,
+                "harmonization_policy": harmonization_metadata,
                 "mask_type": CONSERVATIVE_MASK_POLICY["name"],
                 "mask_policy": CONSERVATIVE_MASK_POLICY,
                 "fp8": args.fp8,
@@ -986,6 +1207,27 @@ def parse_args():
     )
     parser.add_argument("--fp8", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--build-facelift", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--harmonize-reference",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Transfer target low-frequency illumination before encoding the 3D reference",
+    )
+    parser.add_argument(
+        "--reference-conditioning",
+        choices=("target", "neutral"),
+        default="neutral",
+        help="Text conditioning used for the inverse reference trajectory",
+    )
+    parser.add_argument(
+        "--harmonization-reference-mode",
+        choices=("pure_3d", "composite"),
+        default="pure_3d",
+        help=(
+            "Image encoded for the reference trajectory after harmonization: "
+            "pure_3d never mixes pred_x0 pixels; composite retains the earlier ablation"
+        ),
+    )
     args = parser.parse_args()
     if args.steps != 50 or args.inject_start != 30:
         raise ValueError("This experiment is fixed to 50 steps with injection starting at step 30")

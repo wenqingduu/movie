@@ -1,0 +1,44 @@
+{
+  "name": "target_low_frequency_log_rgb_v3_inner_face_apply",
+  "skin_label": 1,
+  "skin_erosion_fraction": 0.025,
+  "low_frequency_sigma_face_width_fraction": 0.09,
+  "illumination_strength": 0.8,
+  "gain_min": 0.1,
+  "gain_max": 1.7,
+  "inward_feather_px": 16.0,
+  "reference_conditioning": "target_prompt",
+  "sigma_px": 42.21,
+  "skin_erosion_radius_px": 12,
+  "skin_support_pixels": 123823,
+  "applied_gain_mean_rgb": [
+    1.1450694799423218,
+    1.1144073009490967,
+    0.9588783383369446
+  ],
+  "applied_gain_min_rgb": [
+    0.5614950060844421,
+    0.5539764165878296,
+    0.47826701402664185
+  ],
+  "applied_gain_max_rgb": [
+    1.5288296937942505,
+    1.5288296937942505,
+    1.5288296937942505
+  ],
+  "reference_mode": "pure_3d",
+  "estimation_mask": "target/reference skin-label intersection",
+  "application_mask": "target/reference complete inner-face intersection",
+  "target_bbox": [
+    291,
+    109,
+    760,
+    762
+  ],
+  "reference_bbox": [
+    295,
+    115,
+    751,
+    761
+  ]
+}

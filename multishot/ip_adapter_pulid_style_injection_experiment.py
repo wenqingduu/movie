@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import shutil
@@ -33,10 +34,10 @@ def _write_conservative_face_mask(
     face_bbox: list[float],
     output_path: Path,
 ) -> Path:
-    """Use the same geometric facial-core policy as the PuLID conservative mask.
+    """Write the geometric facial-core fallback and pre-harmonization diagnostic.
 
-    The SDXL comparison does not load PuLID's semantic face parser, so this is
-    the geometric core component only; that deviation is recorded in result.json.
+    Harmonized runs replace this with the target/reference BiSeNet semantic
+    intersection produced by ``_harmonize_3d_reference_layout``.
     """
 
     width, height = Image.open(image_path).size
@@ -69,6 +70,124 @@ def _write_conservative_face_mask(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mask.save(output_path)
     return output_path
+
+
+def _harmonize_3d_reference_layout(
+    target_preview_path: Path,
+    reference_layout_path: Path,
+    target_bbox: list[float],
+    app,
+    output_dir: Path,
+) -> tuple[Path, Path, dict]:
+    """Apply the PuLID pure-3D harmonization policy to an aligned SDXL reference."""
+    import numpy as np
+    import torch
+    from facexlib.parsing import init_parsing_model
+
+    from multishot.pulid_flux_inner_face_experiment import (
+        HARMONIZATION_POLICY,
+        INNER_FACE_LABELS,
+        _conservative_face_core_mask,
+        _harmonize_reference,
+        _semantic_inner_face_mask,
+    )
+
+    target_preview = Image.open(target_preview_path).convert("RGB")
+    aligned_reference = Image.open(reference_layout_path).convert("RGB")
+    target_bbox_int = [int(round(value)) for value in target_bbox]
+    aligned_face = _largest_face(app, reference_layout_path)
+    if aligned_face is None:
+        raise RuntimeError("No face detected in the aligned 3D reference for harmonization")
+    aligned_bbox = [int(round(float(value))) for value in aligned_face.bbox]
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    parsing_model = init_parsing_model(model_name="bisenet", device=device)
+    target_semantic = _semantic_inner_face_mask(
+        target_preview,
+        target_bbox_int,
+        parsing_model,
+        device,
+        included_labels=INNER_FACE_LABELS,
+    )
+    reference_semantic = _semantic_inner_face_mask(
+        aligned_reference,
+        aligned_bbox,
+        parsing_model,
+        device,
+        included_labels=INNER_FACE_LABELS,
+    )
+    target_skin = _semantic_inner_face_mask(
+        target_preview,
+        target_bbox_int,
+        parsing_model,
+        device,
+        included_labels=(HARMONIZATION_POLICY["skin_label"],),
+    )
+    reference_skin = _semantic_inner_face_mask(
+        aligned_reference,
+        aligned_bbox,
+        parsing_model,
+        device,
+        included_labels=(HARMONIZATION_POLICY["skin_label"],),
+    )
+    parsing_model.cpu()
+    del parsing_model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    skin_intersection = Image.fromarray(
+        np.minimum(np.asarray(target_skin), np.asarray(reference_skin)).astype(np.uint8),
+        mode="L",
+    )
+    color_application = Image.fromarray(
+        np.minimum(np.asarray(target_semantic), np.asarray(reference_semantic)).astype(np.uint8),
+        mode="L",
+    )
+    target_core = _conservative_face_core_mask(target_semantic, target_bbox_int)
+    reference_core = _conservative_face_core_mask(reference_semantic, aligned_bbox)
+    injection_intersection = np.minimum(
+        np.asarray(target_core), np.asarray(reference_core)
+    ).astype(np.uint8)
+    final_injection_mask = Image.fromarray(injection_intersection, mode="L").filter(
+        ImageFilter.GaussianBlur(radius=2.0)
+    )
+    _, harmonization_images, metadata = _harmonize_reference(
+        aligned_reference,
+        target_preview,
+        skin_intersection,
+        color_application,
+        final_injection_mask,
+        target_bbox_int,
+    )
+    metadata["reference_mode"] = "pure_3d"
+    metadata["estimation_mask"] = "target/reference skin-label intersection"
+    metadata["application_mask"] = "target/reference complete inner-face intersection"
+    metadata["target_bbox"] = target_bbox_int
+    metadata["reference_bbox"] = aligned_bbox
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics = {
+        "target_semantic_inner_face_mask.png": target_semantic,
+        "reference_semantic_inner_face_mask.png": reference_semantic,
+        "target_skin_mask.png": target_skin,
+        "reference_skin_mask.png": reference_skin,
+        "skin_intersection_mask.png": skin_intersection,
+        "target_conservative_inner_face_mask.png": target_core,
+        "reference_conservative_inner_face_mask.png": reference_core,
+        "final_injection_mask.png": final_injection_mask,
+        **harmonization_images,
+    }
+    for filename, image in diagnostics.items():
+        if filename in {"harmonization_blend_mask.png", "harmonized_reference.png"}:
+            continue
+        image.save(output_dir / filename)
+    _write_json(output_dir / "harmonization.json", metadata)
+    return (
+        output_dir / "harmonized_3d_face.png",
+        output_dir / "final_injection_mask.png",
+        metadata,
+    )
 
 
 def run(args) -> dict:
@@ -157,6 +276,18 @@ def run(args) -> dict:
         output / "shared" / f"step_{args.fork_step:02d}_conservative_face_mask.png",
     )
     reference_layout = _prepare_reference_face_crop(str(copied_render), target_face["face_bbox"])
+    unharmonized_reference_image = reference_layout["reference_image"]
+    harmonization_metadata = None
+    if args.harmonize_reference:
+        harmonized_reference, target_mask, harmonization_metadata = _harmonize_3d_reference_layout(
+            shared_path,
+            Path(unharmonized_reference_image),
+            target_face["face_bbox"],
+            app,
+            input_dir / "harmonization",
+        )
+        reference_layout["unharmonized_reference_image"] = unharmonized_reference_image
+        reference_layout["reference_image"] = str(harmonized_reference)
     target = {
         "face_id": "face_0",
         "mask_path": str(target_mask),
@@ -218,6 +349,12 @@ def run(args) -> dict:
         [
             ("original portrait / IP-Adapter", copied_reference),
             ("continuous FaceLift 3D render", copied_render),
+            (
+                "harmonized aligned 3D reference"
+                if args.harmonize_reference
+                else "aligned 3D reference",
+                Path(reference_layout["reference_image"]),
+            ),
             (f"shared x0 at step {args.fork_step}", shared_path),
             ("IP-Adapter baseline", branch_outputs["ip_adapter_baseline"]),
             ("IP-Adapter + masked self-attention", branch_outputs["ip_adapter_plus_self_attention"]),
@@ -239,6 +376,8 @@ def run(args) -> dict:
         "effective_self_attention_strength": round(args.injection_lambda * args.attention_scale, 4),
         "effective_trajectory_residual_strength": args.injection_lambda,
         "dynamic_3d_ip_adapter_enabled": False,
+        "harmonize_reference": args.harmonize_reference,
+        "harmonization_policy": harmonization_metadata,
         "target_face": target_face,
         "yaw_gate": yaw_gate,
         "continuous_3d_render_face": render_face_record,
@@ -249,10 +388,18 @@ def run(args) -> dict:
         },
         "reference_layout": reference_layout,
         "mask_policy": {
-            "name": "conservative_geometric_face_core",
+            "name": (
+                "conservative_semantic_inner_face_intersection"
+                if args.harmonize_reference
+                else "conservative_geometric_face_core"
+            ),
             "matches_pulid_geometric_core": True,
-            "semantic_face_parser_intersection": False,
-            "documented_deviation": "SDXL comparison uses the PuLID conservative geometric core without BiSeNet semantic intersection",
+            "semantic_face_parser_intersection": args.harmonize_reference,
+            "documented_deviation": (
+                None
+                if args.harmonize_reference
+                else "SDXL comparison uses the PuLID conservative geometric core without BiSeNet semantic intersection"
+            ),
         },
         "trajectory_policy": {
             "formula": "target_next += strength * mask * (reference_next - target_next)",
@@ -264,6 +411,7 @@ def run(args) -> dict:
             "reference_portrait": str(copied_reference),
             "continuous_3d_render": str(copied_render),
             "scale_matched_3d_layout": reference_layout["reference_image"],
+            "unharmonized_scale_matched_3d_layout": unharmonized_reference_image,
             "target_face_mask": str(target_mask),
             "shared_step_x0": str(shared_path),
             "branches": {name: str(path) for name, path in branch_outputs.items()},
@@ -314,6 +462,12 @@ def parse_args():
     parser.add_argument("--reference-scale", type=float, default=1.0)
     parser.add_argument("--min-abs-yaw", type=float, default=0.0)
     parser.add_argument("--max-abs-yaw", type=float, default=90.0)
+    parser.add_argument(
+        "--harmonize-reference",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use target low-frequency illumination on a pure 3D inner-face reference",
+    )
     return parser.parse_args()
 
 

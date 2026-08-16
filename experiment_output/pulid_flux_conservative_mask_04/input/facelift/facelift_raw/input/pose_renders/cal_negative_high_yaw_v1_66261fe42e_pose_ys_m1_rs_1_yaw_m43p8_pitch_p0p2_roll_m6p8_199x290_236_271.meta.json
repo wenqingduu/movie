@@ -1,0 +1,52 @@
+{
+  "source_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.ply",
+  "render_image": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/pose_renders/cal_negative_high_yaw_v1_66261fe42e_pose_ys_m1_rs_1_yaw_m43p8_pitch_p0p2_roll_m6p8_199x290_236_271.png",
+  "input_face_pose": {
+    "pitch": 0.20232993364334106,
+    "yaw": -43.78550338745117,
+    "roll": -6.796408176422119
+  },
+  "renderer_pose": {
+    "pitch": 1.7532360994137681,
+    "yaw": -36.18144908490677,
+    "roll": -5.380622954774828
+  },
+  "pose_calibration": {
+    "applied": true,
+    "path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.pose_calibration.json",
+    "calibration_sha256": "66261fe42e2e16d331263649780ee4664f45ab8f77bbd3275bb263442d92daf7",
+    "profile": "negative_high_yaw_v1",
+    "desired_pose": {
+      "pitch": 0.20232993364334106,
+      "yaw": -43.78550338745117,
+      "roll": -6.796408176422119
+    },
+    "corrected_camera_pose": {
+      "pitch": 1.7532360994137681,
+      "yaw": -36.18144908490677,
+      "roll": -5.380622954774828
+    },
+    "fit_rmse_degrees": {
+      "pitch": 3.2928405534053558,
+      "yaw": 1.771817347151412,
+      "roll": 4.084215559490642
+    }
+  },
+  "camera": {
+    "yaw": -36.1814,
+    "pitch": 1.7532,
+    "roll": -5.3806,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 306.1814,
+    "elevation": -1.7532
+  },
+  "target_face_bbox": [
+    136.0,
+    126.0,
+    335.0,
+    416.0
+  ],
+  "render_size": 1024,
+  "renderer": "FaceLift GaussianModel/render_opencv_cam"
+}

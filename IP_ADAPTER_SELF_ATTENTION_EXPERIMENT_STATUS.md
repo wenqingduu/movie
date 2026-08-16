@@ -1,5 +1,7 @@
 # IP-Adapter + 3D 人脸 Self-Attention 注入实验状态
 
+> 此路线已被 PuLID-style trajectory residual 最终实验取代，旧输出已移到回收站。当前结果入口见 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`。
+
 > 给后续接手本仓库的大模型：本实验用于回答“现有 IP-Adapter 策略是否通过 self-attention 注入 3D 采样人脸，以及为什么此前看起来只注入了皮肤纹理”。实验已经真实跑完，不要把配置存在误认为注入成功，也不要重新下载模型。
 
 ## 结论

@@ -1,5 +1,7 @@
 # IP-Adapter 移植 PuLID 式 3D Trajectory Residual 实验
 
+> 2026-08-16 最终更新：当前小/大角度结果已经加入纯 3D 光照匹配、FaceLift 姿态标定自动接入和 PuLID 同款 BiSeNet 保守语义交集 mask。本文以下内容保留为历史记录；最新权威结果与入口请以 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md` 为准。
+
 > 给后续接手本仓库的大模型：本实验已经真实完成。目标不是把 IP-Adapter 改造成 PuLID 原生 IDFormer，而是把此前 PuLID-FLUX 3D 实验中直观有效的“同 timestep reference trajectory residual + 目标脸 mask”策略移植到 SDXL + IP-Adapter。
 
 大角度复验也已完成；结论、姿态诊断和结果入口见 `IP_ADAPTER_HIGH_YAW_PULID_STYLE_EXPERIMENT_STATUS.md`。

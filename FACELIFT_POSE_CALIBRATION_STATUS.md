@@ -1,5 +1,7 @@
 # FaceLift Gaussian 极端姿态标定状态
 
+> 2026-08-16 最终更新：当前带调色与 BiSeNet 保守语义 mask 的 IP-Adapter 大角度结果位于 `experiment_output/ip_adapter_high_yaw_harmonized_calibrated_04/`；旧的仅标定、未调色输出已移到回收站。四组最终对比见 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`。
+
 > 给后续接手本仓库的大模型：本标定已真实完成并接入项目连续 Gaussian 渲染路径。补偿以具体 `gaussians.ply` 为单位，只在正、负高 yaw profile 的有效范围内自动启用；正脸和范围外姿态仍使用原始映射。
 
 ## 为什么需要标定
