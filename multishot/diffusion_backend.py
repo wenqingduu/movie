@@ -1391,8 +1391,20 @@ class OpenSourceDiffusionBackend:
                         added_cond_kwargs=added_cond_kwargs,
                         return_dict=False,
                     )[0]
-                if use_mutual_attention and step_injections and step_injections[0].get("status") == "applied":
-                    step_injections[0]["attention_layer_stats"] = list(self._attention_controller.layer_stats)
+                if use_mutual_attention:
+                    # Dynamic IP-Adapter can add its own log entry before the
+                    # self-attention entry.  Attach layer diagnostics to the
+                    # operation that actually produced them rather than to
+                    # whichever entry happens to be first.
+                    for injection_log in reversed(step_injections):
+                        if (
+                            injection_log.get("mode") == "masked_mutual_self_attention"
+                            and injection_log.get("status") == "applied"
+                        ):
+                            injection_log["attention_layer_stats"] = list(
+                                self._attention_controller.layer_stats
+                            )
+                            break
                 self._attention_controller.stop()
 
                 if use_mutual_attention and noise_pred.shape[0] == target_model_input.shape[0] * 2:

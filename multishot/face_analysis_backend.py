@@ -1,4 +1,5 @@
 import math
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,15 +32,16 @@ class InsightFaceBackend:
 
         # 先用 CPU provider，保证和当前服务器 CUDA/onnxruntime 版本解耦。
         # 后续如果要提速，可以把 MULTISHOT_INSIGHTFACE_PROVIDERS 设成 CUDAExecutionProvider,CPUExecutionProvider。
-        import os
         providers = [
             item.strip()
             for item in os.getenv("MULTISHOT_INSIGHTFACE_PROVIDERS", "CPUExecutionProvider").split(",")
             if item.strip()
         ]
+        model_name = os.getenv("MULTISHOT_INSIGHTFACE_MODEL_NAME", "buffalo_l")
+        model_root = Path(os.getenv("MULTISHOT_INSIGHTFACE_ROOT", str(INSIGHTFACE_ROOT)))
         app = FaceAnalysis(
-            name="buffalo_l",
-            root=str(INSIGHTFACE_ROOT),
+            name=model_name,
+            root=str(model_root),
             providers=providers,
         )
         ctx_id = 0 if providers and providers[0] == "CUDAExecutionProvider" else -1
