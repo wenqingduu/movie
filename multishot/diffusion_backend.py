@@ -1268,7 +1268,9 @@ class OpenSourceDiffusionBackend:
         4. self-attention processor 手动拆出 reference / target 的 Q/K/V。
         5. target face query 关注 reference face K/V，再用 M_target 和 lambda 融合。
 
-        如果设置 MULTISHOT_INJECTION_MODE=latent_blend，则回退到旧的 VAE latent blending。
+        如果设置 MULTISHOT_INJECTION_MODE=latent_blend，则回退到旧的静态 VAE latent blending。
+        如果设置为 trajectory_residual，则仿照 PuLID-FLUX 实验：scheduler 每步更新
+        target 后，把同一 next timestep 的 3D reference latent residual 按脸区 mask 混入。
         """
 
         pipe = self._load()
@@ -1423,6 +1425,14 @@ class OpenSourceDiffusionBackend:
                         step_index,
                     )
                     step_injections.extend(blend_logs)
+                elif injection_mode == "trajectory_residual":
+                    latents, trajectory_logs = self._apply_reference_trajectory_injection(
+                        latents,
+                        runtime,
+                        injection_plan,
+                        step_index,
+                    )
+                    step_injections.extend(trajectory_logs)
 
                 applied_injections.extend(step_injections)
                 last_noise_pred = noise_pred.detach()
@@ -1502,6 +1512,103 @@ class OpenSourceDiffusionBackend:
                 "lambda": injection_lambda,
                 "effective_strength": round(strength, 4),
                 "mask_source": "face_mask_path" if target.get("mask_path") else "face_bbox",
+                "status": "applied",
+            })
+
+        return mixed_latents, applied
+
+    def _apply_reference_trajectory_injection(
+        self,
+        latents,
+        runtime: dict,
+        injection_plan: dict,
+        step_index: int,
+    ):
+        """按脸区混合同一 scheduler 时刻的 3D reference residual。
+
+        这对应 PuLID-FLUX 实验中的核心更新：
+        ``target_next += strength * mask * (reference_next - target_next)``。
+        区别只在 reference trajectory 的构造：SDXL 这里用固定 reference noise
+        和 scheduler.add_noise 得到与 target next timestep 对齐的 reference state。
+        """
+
+        pipe = self._load()
+        torch = self._torch
+        injection_lambda = float(injection_plan.get("lambda", 0.0) or 0.0)
+        targets = injection_plan.get("targets", [])
+        if injection_lambda <= 0 or not targets:
+            return latents, []
+
+        scale = float(os.getenv("MULTISHOT_TRAJECTORY_INJECTION_SCALE", "1.0"))
+        strength = max(0.0, min(1.0, injection_lambda * scale))
+        if strength <= 0:
+            return latents, []
+
+        next_step_index = step_index + 1
+        has_next_timestep = next_step_index < len(runtime["timesteps"])
+        mixed_latents = latents
+        applied = []
+        for target in targets:
+            reference_image = target.get("reference_image")
+            if not reference_image or not Path(reference_image).exists():
+                applied.append({
+                    "step_index": step_index,
+                    "mode": "masked_reference_trajectory_residual",
+                    "status": "skipped",
+                    "reason": "reference image not found",
+                })
+                continue
+
+            try:
+                reference_x0 = self._encode_reference_image(reference_image)
+                reference_noise = self._reference_noise_for_attention(reference_image, reference_x0)
+                if has_next_timestep:
+                    next_timestep = runtime["timesteps"][next_step_index]
+                    reference_next = pipe.scheduler.add_noise(
+                        reference_x0,
+                        reference_noise,
+                        next_timestep,
+                    )
+                    trajectory_source = "scheduler_add_noise"
+                    next_timestep_value = (
+                        int(next_timestep.item())
+                        if hasattr(next_timestep, "item")
+                        else int(next_timestep)
+                    )
+                else:
+                    reference_next = reference_x0
+                    trajectory_source = "clean_reference_x0"
+                    next_timestep_value = None
+            except Exception as exc:
+                applied.append({
+                    "step_index": step_index,
+                    "mode": "masked_reference_trajectory_residual",
+                    "reference_image": reference_image,
+                    "status": "skipped",
+                    "reason": f"failed to build reference trajectory state: {exc}",
+                })
+                continue
+
+            mask = self._build_latent_mask(target, mixed_latents)
+            alpha = (mask * strength).to(device=mixed_latents.device, dtype=mixed_latents.dtype)
+            residual = alpha * (reference_next - mixed_latents)
+            mixed_latents = mixed_latents + residual
+            applied.append({
+                "step_index": step_index,
+                "mode": "masked_reference_trajectory_residual",
+                "face_id": target.get("face_id"),
+                "matched_character_id": target.get("matched_character_id"),
+                "reference_image": reference_image,
+                "reference_trajectory_source": trajectory_source,
+                "reference_next_timestep": next_timestep_value,
+                "lambda": injection_lambda,
+                "effective_strength": round(strength, 4),
+                "mask_source": "face_mask_path" if target.get("mask_path") else "face_bbox",
+                "mask_latent_token_count": int((mask > 0.01).sum().item()),
+                "residual_norm": round(float(residual.float().norm().item()), 6),
+                "reference_state_norm": round(float(reference_next.float().norm().item()), 6),
+                "target_state_norm_before": round(float((mixed_latents - residual).float().norm().item()), 6),
+                "finite": bool(torch.isfinite(mixed_latents).all().item()),
                 "status": "applied",
             })
 
