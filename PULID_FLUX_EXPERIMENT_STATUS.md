@@ -35,6 +35,7 @@
 - FaceLift 多视图扩散 smoke 设置：`10` steps
 - 3D 参考模式：`facelift_continuous_gaussian_pose_render`，没有离散视图 fallback
 - 参考布局：`match_target_scale`，比例 `1.0`，保持长宽比并对齐目标脸中心
+- 大 yaw 组：seed `20260818`、guidance `4.0`、PuLID `id_weight=0.5`、实测绝对 yaw 验收范围 `25°～45°`
 
 本轮输入 `experiment_assets/pulid_reference.jpg` 是下载的外部真实照片，不是本项目生成的人物资产；原始 URL 未记录。文件 SHA256 为：
 
@@ -71,6 +72,24 @@
 
 人工检查显示耳侧、太阳穴、脸颊外轮廓和下巴的接缝明显改善，但中心额头、眼鼻和嘴部仍保留 FaceLift 的偏白、平光和蜡感。mask 收缩有效，但不能单独解决参考渲染域不一致。
 
+## 大 yaw 验证
+
+为避免原始正脸参考在 `id_weight=1.0` 下压制姿态，先用 yaw gate 检查多个候选。强 prompt 和 guidance `8.0` 在 `id_weight=1.0` 下仍只得到约 `1°～10°` yaw；将 PuLID `id_weight` 降至 `0.5` 后，step 30 得到：
+
+- pitch `0.2023°`、yaw `-43.7855°`、roll `-6.7964°`
+- 检测置信度 `0.8129`
+- 连续 Gaussian 相机 azimuth `313.7855°`、elevation `-0.2023°`
+- 目标脸 `199×290`，对齐参考脸 `197×290`
+
+| 大 yaw 组别 | 对原始照片 cosine | 对匹配角度 3D 脸 cosine | 最终 yaw |
+|---|---:|---:|---:|
+| Control（PuLID 0.5） | 0.535710 | 0.451441 | -42.5001° |
+| Treatment（PuLID 0.5 + 3D 注入 0.4） | 0.658383 | 0.855195 | -51.7436° |
+
+大 yaw Treatment 相对 Control 的原始身份 cosine 提升 `0.122673`，3D cosine 提升 `0.403755`。20 个注入步骤全部有限，mask 覆盖 `149/1280` tokens（`11.6406%`），首次 residual norm 为 `30.6833`。
+
+人工检查结论是：大 yaw 下 3D 注入明显恢复了参考人物的眼、鼻、嘴和脸型特征，但 FaceLift 的偏白平光材质覆盖了目标的红蓝霓虹光照，中心脸部出现明显大块贴片；同时最终 yaw 估计比 step 30 多侧转约 `8°`。因此这组证明了 3D 约束在大姿态下的价值，也更清楚地暴露了下一阶段必须解决的颜色域匹配与姿态感知 mask 问题。
+
 高 yaw 组使用更严格的侧脸 prompt、seed `20260818` 和 PuLID `id_weight=0.5`。20/20 个注入步骤均 finite，packed mask 为 `149/1280` tokens；residual norm 从 step 30 的 `30.6833` 衰减到 step 49 的 `2.5429`。人工检查确认五官和脸型明显向 3D reference 移动，但目标脸中心的亮度、肤色和渲染材质与霓虹场景不一致，因此高 cosine 不能单独视为视觉合格。
 
 ## 连续渲染与尺度验证
@@ -103,10 +122,11 @@
 - 高 yaw 组：`experiment_output/pulid_flux_high_yaw_44_mask_04/`
 - 高 yaw Control/Treatment：`experiment_output/pulid_flux_high_yaw_44_mask_04/control/final.png`、`experiment_output/pulid_flux_high_yaw_44_mask_04/treatment/final.png`
 - 最新 step-30 预测、对齐图和 mask：`experiment_output/pulid_flux_conservative_mask_04/step_30/`
+- 大 yaw step-30 预测、对齐图和 mask：`experiment_output/pulid_flux_high_yaw_44_mask_04/step_30/`
 - 指标：各实验目录下的 `metrics.json`
 - 每步数值日志：各实验目录下的 `step_log.jsonl`
 
-旧的 `facelift_smoke`、`pulid_flux_smoke` 和 `pulid_flux_diagnostic_04` 结果目录已按要求移出项目，仅保留上表中的历史指标。当前保守 mask 目录已包含独立的 Gaussian PLY、FaceLift 渲染和状态文件，不再依赖旧实验目录。为避免仓库膨胀，本地模型权重、虚拟环境和下载缓存仍不提交。
+旧的 `facelift_smoke`、`pulid_flux_smoke` 和 `pulid_flux_diagnostic_04` 结果目录已按要求移出项目，仅保留上表中的历史指标。当前保守 mask 目录已包含独立的 Gaussian PLY、FaceLift 渲染和状态文件；大 yaw 组复用该资产。为避免仓库膨胀，本地模型权重、虚拟环境和下载缓存仍不提交。
 
 ## 本地复现命令
 
@@ -153,5 +173,6 @@ export PYTHONPATH="$PWD"
 2. 优先对 FaceLift 渲染图做颜色、曝光和低频统计匹配，再编码参考轨迹；保守 mask 和高 yaw 组都证明只能改善外沿，无法修复中心区域域差。
 3. 保留当前保守 mask 作为新基线，并尝试随 timestep 衰减的注入权重。
 4. 评估只注入中间若干步，而不是从 step 30 一直持续到 step 49。
-5. 用项目自身生成的角色参考图另做一组实验；不要与本轮外部真实照片结果混为同一输入条件。
-6. 每次修改必须保留相同 Control，并同时报告原始身份相似度、3D 相似度和人工自然度检查。
+5. 大 yaw 下使用姿态感知的非对称 mask，进一步排除远侧脸轮廓和被遮挡区域；当前 bbox 椭圆 mask 在侧脸上仍偏宽。
+6. 用项目自身生成的角色参考图另做一组实验；不要与本轮外部真实照片结果混为同一输入条件。
+7. 每次修改必须保留相同 Control，并同时报告原始身份相似度、3D 相似度、最终姿态和人工自然度检查。

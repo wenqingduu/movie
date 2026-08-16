@@ -402,6 +402,15 @@ def _face_similarity(app, first: Image.Image, second: Image.Image) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
 
 
+def _face_pose_record(app, image: Image.Image) -> dict:
+    face = _largest_face(app, image)
+    return {
+        "pitch_yaw_roll": [float(value) for value in getattr(face, "pose", [0.0, 0.0, 0.0])],
+        "det_score": float(face.det_score),
+        "bbox": [float(value) for value in face.bbox],
+    }
+
+
 def _load_models(args, device: torch.device):
     text_root = PULID_ROOT / "models" / "xflux_text_encoders"
     clip_root = PULID_ROOT / "models" / "clip-vit-large-patch14"
@@ -842,6 +851,15 @@ def run(args) -> Path:
             metrics["rendered_3d_treatment_insightface_cosine"]
             - metrics["rendered_3d_control_insightface_cosine"]
         )
+        metrics["pose"] = {
+            "step_30_target": {
+                "pitch_yaw_roll": pose,
+                "det_score": float(target_face.det_score),
+                "bbox": [float(value) for value in target_face.bbox],
+            },
+            "control_final": _face_pose_record(pulid.app, control_image),
+            "treatment_final": _face_pose_record(pulid.app, treatment_image),
+        }
         _write_json(output / "metrics.json", metrics)
 
         model_path = PULID_ROOT / "models" / (
