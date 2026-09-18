@@ -1,6 +1,6 @@
 # IP-Adapter + 3D Trajectory Residual 当前状态
 
-> 2026-08-28 更新：reference self-attention 策略及其实验入口已经删除。当前 v5 只保留原始照片 IP-Adapter baseline 与局部 3D trajectory residual，并加入按脸高自适应 strength/结束步、小脸稳健调色和极小脸几何 core fallback。完整六组验证见 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md`。
+> 2026-08-28 更新：当前 v5 包含原始照片 IP-Adapter baseline 与局部 3D trajectory residual，并加入按脸高自适应 strength/结束步、小脸稳健调色和极小脸几何 core fallback。完整六组验证见 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md`。
 
 ## 当前策略
 

@@ -201,8 +201,6 @@ def _harmonize_3d_reference_layout(
         **harmonization_images,
     }
     for filename, image in diagnostics.items():
-        if filename in {"harmonization_blend_mask.png", "harmonized_reference.png"}:
-            continue
         image.save(output_dir / filename)
     _write_json(output_dir / "harmonization.json", metadata)
     return (
@@ -309,7 +307,7 @@ def run(args) -> dict:
     unharmonized_reference_image = reference_layout["reference_image"]
     harmonization_metadata = None
     if args.harmonize_reference:
-        harmonized_reference, target_mask, harmonization_metadata = _harmonize_3d_reference_layout(
+        harmonized_3d_reference, target_mask, harmonization_metadata = _harmonize_3d_reference_layout(
             shared_path,
             Path(unharmonized_reference_image),
             target_face["face_bbox"],
@@ -317,7 +315,7 @@ def run(args) -> dict:
             input_dir / "harmonization",
         )
         reference_layout["unharmonized_reference_image"] = unharmonized_reference_image
-        reference_layout["reference_image"] = str(harmonized_reference)
+        reference_layout["reference_image"] = str(harmonized_3d_reference)
     target = {
         "face_id": "face_0",
         "mask_path": str(target_mask),

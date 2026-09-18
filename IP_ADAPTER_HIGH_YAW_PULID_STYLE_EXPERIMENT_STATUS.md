@@ -1,6 +1,6 @@
 # IP-Adapter + 3D Trajectory Residual 大角度状态
 
-> 2026-08-25 更新：reference self-attention 策略及其结果分支已经删除。大角度 v4 路径只保留 baseline 与 soft-context 调色、标定后的 trajectory residual。
+> 2026-08-25 更新：大角度 v4 路径只包含 baseline 与 soft-context 调色、标定后的 trajectory residual。
 
 ## 当前策略
 

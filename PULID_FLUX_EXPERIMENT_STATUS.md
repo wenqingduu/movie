@@ -101,7 +101,7 @@
 
 ### 光照迁移消融
 
-新增可选 `--harmonize-reference` 路径：仅用双方 skin label 交集估计 log-linear RGB 低频光照，将目标 `pred_x0` 的红蓝光照施加到对齐后 3D 脸。早期消融以目标图作为 AE 编码上下文；最新 `--harmonization-reference-mode pure_3d` 则直接编码调色后的纯 3D 图，不混入目标像素。各组使用相同 Control、yaw、收缩 mask 和注入强度 0.4。
+`--harmonize-reference` 路径仅用双方 skin label 交集估计 log-linear RGB 低频光照，将目标 `pred_x0` 的红蓝光照施加到对齐后 3D 脸，再直接编码调色后的纯 3D 图，不混入目标像素。旧像素合成分支已从代码删除。各组使用相同 Control、yaw、收缩 mask 和注入强度 0.4。
 
 | 大 yaw Treatment | 原始照片 cosine | 3D cosine | 最终 yaw | 人工结果 |
 |---|---:|---:|---:|---|
@@ -195,7 +195,6 @@ export PYTHONPATH="$PWD"
   --min-abs-yaw 25 \
   --max-abs-yaw 45 \
   --harmonize-reference \
-  --harmonization-reference-mode pure_3d \
   --reference-conditioning target \
   --prompt 'strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up'
 ```

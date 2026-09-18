@@ -33,7 +33,7 @@
 
 2026-08-25 IP-Adapter v4 验证：两组 `final_injection_mask.png` 与 v3 逐像素相同，Baseline 也逐像素相同。视觉差异很小；小角度原图/3D cosine 分别回退 `0.024792/0.010366`，大角度原图 cosine 回退 `0.010007`、3D cosine 提升 `0.008848`。说明 soft-context 对 FLUX 收益明确，但对原本边界较自然、latent 分辨率更高的 SDXL/IP-Adapter 不是一致增益。
 
-2026-08-16 后续收缩：IP-Adapter reference self-attention 策略已从后端、实验入口和最终结果中删除。两组 IP-Adapter 对照图现在均为六格，只包含输入、调色参考、共享 step-30、baseline 和 trajectory residual。
+两组 IP-Adapter 对照图均为六格，只包含输入、调色参考、共享 step-30、baseline 和 trajectory residual。
 
 ## 姿态标定验收
 
@@ -63,11 +63,7 @@
 
 `/root/.local/share/Trash/files/movie_obsolete_experiments_20260816_2/`
 
-其中包括旧像素合成调色、未标定高 yaw、失败 yaw probe、方向错误诊断、self-attention 旧实验，以及未调色 IP-Adapter 小/大角度结果。该操作可恢复。
-
-两组最终 IP-Adapter 目录中原有的 self-attention PNG 与逐步日志另外移到：
-
-`/root/.local/share/Trash/files/movie_retired_self_attention_20260816/`
+其中包括旧像素合成调色、未标定高 yaw、失败 yaw probe、方向错误诊断，以及未调色 IP-Adapter 小/大角度结果。该操作可恢复。
 
 2026-08-25 被 v4 替代的 PuLID-FLUX 与 IP-Adapter 小/大角度 v3 目录共四个，已移到：
 

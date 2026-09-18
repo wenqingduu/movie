@@ -940,7 +940,7 @@ def _save_reference_layout_mask(mask_path: Path, output_size: int, face_bbox: li
 
 
 def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: list[float] | None = None):
-    """准备 reference attention 使用的人脸参考图。
+    """准备局部 reference trajectory 使用的人脸布局图。
 
     MULTISHOT_REFERENCE_LAYOUT_MODE=crop：
       裁出参考图中人脸并放大到 1024，reference token 更干净。

@@ -1,6 +1,6 @@
 # 3D 人脸注入实验大模型交接文档
 
-> 最后更新：2026-08-28。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`；不要重新下载模型。reference self-attention 策略已从代码和最终结果中删除，不要恢复。
+> 最后更新：2026-09-18。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `EVALUATION_PLAN.md`。当前代码只有 pure-3D 调色与 trajectory residual 注入路径。
 
 ## 1. 当前任务状态
 
@@ -151,7 +151,7 @@ IP-Adapter 旧版只有几何椭圆，会在小角度额头注入 3D 头发。�
 - `pulid_flux_closeup_regression_adaptive_v5/`、`ip_adapter_closeup_regression_adaptive_v5/`：近景回归。
 - `small_face_adaptive_v5_validation_contact_sheet.jpg`：六组局部放大总览。
 
-每个最终实验目录包含：输入/纯 3D 调色诊断图、mask、Control/Baseline、Treatment/residual、结构化指标和逐步数值日志。IP-Adapter 目录只保留 baseline 与 trajectory residual，不再包含 self-attention 分支。pure-3D 模式不保存旧的 `pred_x0` 像素合成图，避免将诊断分支误认为 AE/VAE 输入。
+每个最终实验目录包含：输入/纯 3D 调色诊断图、mask、Control/Baseline、Treatment/residual、结构化指标和逐步数值日志。IP-Adapter 目录只包含 baseline 与 trajectory residual；pure-3D 调色不会保存或编码 `pred_x0` 像素合成图。
 
 ## 6. 已清理的结果
 
@@ -161,16 +161,11 @@ IP-Adapter 旧版只有几何椭圆，会在小角度额头注入 3D 头发。�
 - 未标定 PuLID 大 yaw
 - IP-Adapter scale 失败 probe
 - 大 yaw 方向错误诊断
-- self-attention 旧实验
 - 未调色 IP-Adapter 小角度与大角度
 
 可恢复位置：
 
 `/root/.local/share/Trash/files/movie_obsolete_experiments_20260816_2/`
-
-随后从两组最终 IP-Adapter 输出中移除的 4 个 self-attention 分支文件可恢复于：
-
-`/root/.local/share/Trash/files/movie_retired_self_attention_20260816/`
 
 2026-08-25 被 v4 替代的四个 PuLID/IP-Adapter v3 目录可恢复于：
 
@@ -215,7 +210,6 @@ export PYTHONPATH="$PWD"
   --min-abs-yaw 0 \
   --max-abs-yaw 15 \
   --harmonize-reference \
-  --harmonization-reference-mode pure_3d \
   --reference-conditioning target
 ```
 
@@ -233,7 +227,6 @@ export PYTHONPATH="$PWD"
   --min-abs-yaw 25 \
   --max-abs-yaw 45 \
   --harmonize-reference \
-  --harmonization-reference-mode pure_3d \
   --reference-conditioning target \
   --prompt 'strict right-facing side profile portrait of the same man, face looking to frame right, only one eye visible, one ear visible, clear nose silhouette, far half of face hidden, no frontal face, cinematic warm neon rainy night street, photorealistic natural skin, medium close-up'
 ```
@@ -291,8 +284,7 @@ export PYTHONPATH="$PWD"
 
 ## 11. 交接检查清单
 
-- 不要恢复旧像素合成路径作为默认方案。
-- 不要恢复 reference self-attention processor、实验分支或参数；IP-Adapter 局部注入只保留 trajectory residual。
+- 调色只有 pure-3D 路径；IP-Adapter 局部注入只有 trajectory residual 路径。
 - 不要用 skin label 作为最终调色应用 mask；它会漏掉鼻子和五官边缘。
 - 不要让 IP-Adapter 回退到 geometric-only 注入 mask。
 - 不要按绝对 yaw 选择缓存侧脸；必须根据带符号 pose 连续渲染。

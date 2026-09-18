@@ -662,18 +662,6 @@ def _harmonize_reference(
     pure_3d_linear = np.exp(render_log + applied_delta * color_blend[..., None])
     harmonized_pure_3d = np.clip(_linear_to_srgb(pure_3d_linear), 0.0, 1.0)
 
-    # Preserve the earlier pixel-composite ablation as an explicit optional
-    # mode, without using it for the pure_3d trajectory.
-    hard_core = (core > 0).astype(np.uint8)
-    core_distance = cv2.distanceTransform(hard_core, cv2.DIST_L2, 5)
-    composite_blend = np.clip(
-        core_distance / HARMONIZATION_POLICY["inward_feather_px"], 0.0, 1.0
-    )
-    corrected_linear = np.exp(render_log + applied_delta)
-    corrected = np.clip(_linear_to_srgb(corrected_linear), 0.0, 1.0)
-    corrected = np.where(hard_core[..., None] > 0, corrected, render)
-    composite = target * (1.0 - composite_blend[..., None]) + corrected * composite_blend[..., None]
-
     gain = np.exp(applied_delta)
     gain_visualization = np.clip(
         (gain - HARMONIZATION_POLICY["gain_min"])
@@ -686,9 +674,6 @@ def _harmonize_reference(
         "harmonization_application_mask.png": Image.fromarray(
             (hard_application * 255).astype(np.uint8), mode="L"
         ),
-        "harmonization_blend_mask.png": Image.fromarray(
-            (composite_blend * 255.0).astype(np.uint8), mode="L"
-        ),
         "harmonization_color_blend_mask.png": Image.fromarray(
             (color_blend * 255.0).astype(np.uint8), mode="L"
         ),
@@ -696,7 +681,6 @@ def _harmonize_reference(
         "harmonized_3d_face.png": Image.fromarray(
             (harmonized_pure_3d * 255.0).astype(np.uint8), mode="RGB"
         ),
-        "harmonized_reference.png": Image.fromarray((composite * 255.0).astype(np.uint8), mode="RGB"),
     }
     supported_gain = gain[color_support > 0]
     metadata = {
@@ -713,7 +697,7 @@ def _harmonize_reference(
         "applied_gain_min_rgb": [float(value) for value in supported_gain.min(axis=0)],
         "applied_gain_max_rgb": [float(value) for value in supported_gain.max(axis=0)],
     }
-    return images["harmonized_reference.png"], images, metadata
+    return images["harmonized_3d_face.png"], images, metadata
 
 
 def _token_mask(
@@ -1288,7 +1272,7 @@ def run(args) -> Path:
                 reference_color_context_probability,
                 target_bbox,
             )
-            composite_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
+            trajectory_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
                 aligned_reference,
                 preview,
                 skin_intersection,
@@ -1296,22 +1280,10 @@ def run(args) -> Path:
                 final_mask,
                 target_bbox,
             )
-            if args.harmonization_reference_mode == "pure_3d":
-                # pred_x0 supplies only the low-frequency color/illumination
-                # estimate.  Do not mix any target pixels into the image that
-                # is encoded for the reference trajectory.
-                trajectory_reference = harmonization_images["harmonized_3d_face.png"]
-            else:
-                trajectory_reference = composite_reference
             harmonization_metadata["reference_conditioning"] = args.reference_conditioning
-            harmonization_metadata["reference_mode"] = args.harmonization_reference_mode
+            harmonization_metadata["reference_mode"] = "pure_3d"
             harmonization_metadata["color_context"] = color_context_metadata
             for filename, image in harmonization_images.items():
-                if args.harmonization_reference_mode == "pure_3d" and filename in {
-                    "harmonization_blend_mask.png",
-                    "harmonized_reference.png",
-                }:
-                    continue
                 image.save(step_dir / filename)
             _write_json(step_dir / "harmonization.json", harmonization_metadata)
 
@@ -1412,12 +1384,9 @@ def run(args) -> Path:
         treatment_image = _decode(ae, treatment, args.height, args.width, device)
         control_image.save(control_dir / "final.png")
         treatment_image.save(treatment_dir / "final.png")
-        if args.harmonize_reference and args.harmonization_reference_mode == "pure_3d":
+        if args.harmonize_reference:
             comparison_reference_path = step_dir / "harmonized_3d_face.png"
             comparison_reference_label = "harmonized pure 3D reference"
-        elif args.harmonize_reference:
-            comparison_reference_path = step_dir / "harmonized_reference.png"
-            comparison_reference_label = "harmonized composite reference"
         else:
             comparison_reference_path = step_dir / "aligned_3d_face.png"
             comparison_reference_label = "aligned 3D reference"
@@ -1494,7 +1463,6 @@ def run(args) -> Path:
                 "small_face_injection_policy": injection_adaptation,
                 "required_absolute_yaw_range": [args.min_abs_yaw, args.max_abs_yaw],
                 "harmonize_reference": args.harmonize_reference,
-                "harmonization_reference_mode": args.harmonization_reference_mode,
                 "harmonization_policy": harmonization_metadata,
                 "mask_type": CONSERVATIVE_MASK_POLICY["name"],
                 "mask_policy": CONSERVATIVE_MASK_POLICY,
@@ -1616,15 +1584,6 @@ def parse_args():
         choices=("target", "neutral"),
         default="neutral",
         help="Text conditioning used for the inverse reference trajectory",
-    )
-    parser.add_argument(
-        "--harmonization-reference-mode",
-        choices=("pure_3d", "composite"),
-        default="pure_3d",
-        help=(
-            "Image encoded for the reference trajectory after harmonization: "
-            "pure_3d never mixes pred_x0 pixels; composite retains the earlier ablation"
-        ),
     )
     args = parser.parse_args()
     if args.steps != 50 or args.inject_start != 30:
