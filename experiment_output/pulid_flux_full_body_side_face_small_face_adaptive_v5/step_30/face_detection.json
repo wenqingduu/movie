@@ -1,0 +1,35 @@
+{
+  "bbox": [
+    272,
+    111,
+    316,
+    182
+  ],
+  "pitch_yaw_roll": [
+    6.168855667114258,
+    74.02159881591797,
+    6.036360740661621
+  ],
+  "det_score": 0.8483684062957764,
+  "requested_start_step": 30,
+  "actual_start_step": 30,
+  "detection_failures": [],
+  "injection_adaptation": {
+    "name": "face_height_adaptive_v1",
+    "minimum_face_height_px": 48.0,
+    "full_strength_face_height_px": 128.0,
+    "minimum_strength_scale": 0.3,
+    "minimum_active_step_fraction": 0.5,
+    "enabled": true,
+    "face_width_px": 44.0,
+    "face_height_px": 71.0,
+    "base_strength": 0.4,
+    "size_scale": 0.5546875,
+    "active_step_progress": 0.2875,
+    "effective_strength": 0.22187500000000002,
+    "start_step": 30,
+    "end_step_exclusive": 43,
+    "active_steps": 13,
+    "total_available_steps": 20
+  }
+}

@@ -2,6 +2,8 @@
 
 > 给后续接手本仓库的大模型：本文是当前 PuLID-FLUX 实验的交接入口。不要重新下载模型或从头实现；主链路已经跑通，当前问题是注入结果的视觉融合质量，而不是环境或推理可用性。
 
+> 2026-08-28 更新：v5 已加入 FLUX VAE 子位置级 packed mask、按人脸高度自动调整 strength/结束步、小脸稳健调色和极小脸保守几何 fallback。三张 `34×44`～`39×55 px` 全身小脸均相对 Control 提升，近景回归从 v4 的 `0.812630` 提升到 `0.868990`。完整策略与结果见 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md`。
+
 ## 当前结论
 
 截至 2026-08-16，已在单张 NVIDIA GeForce RTX 4090（48 GB）上完成以下验证：
@@ -17,6 +19,8 @@
 9. 已完成 3D 参考光照迁移实验：skin-only log-RGB 低频增益可以基本消除白色面具并恢复红蓝霓虹光，但 16px 像素合成羽化会混合目标与 3D 两套五官，使身份 cosine 降到 `0.490374`；缩至 4px 后恢复到 `0.530356`，但出现局部硬边，仍未超过 Control。因此调色实现保留为可选实验，暂不替换默认保守 mask 基线。
 10. 已完成“调色后的纯 3D 脸直接送入 AE”对照：`pred_x0` 只用于在重叠纯皮肤区估计低频 log-RGB 光影，增益应用到完整 inner-face（包含眉眼、鼻、嘴和唇），不再有任何 `pred_x0` 像素进入参考图。收缩 mask、step 30～49 和权重 `0.4` 均不变。原始身份 cosine 为 `0.688840`，3D cosine 为 `0.858792`，最终 yaw 为 `-44.8903°`；鼻子和五官边缘的未调色白边已经消除。
 11. 当前同策略小角度复验也已完成：step-30 yaw `+1.3447°`，原始身份 cosine `0.796340`，3D cosine `0.889137`，最终 yaw `+2.9400°`。高 yaw 标定 profile 未错误应用到该小角度姿态。PuLID 与 IP-Adapter 的最终四组对比见 `HARMONIZED_3D_INJECTION_COMPARISON_STATUS.md`。
+12. 已完成 v4 soft face-parsing 调色上下文实验。硬语义交集和保守注入核心完全不变；新增 BiSeNet soft 概率、约 `19～20px` 调色上下文环、缺口 closing，以及 packed token 的 BOX 面积采样和 `0.5 token` 羽化。小角度原始/3D cosine 提升到 `0.812630/0.910659`，大角度提升到 `0.695429/0.865799`。两组 Control 与 v3 逐像素相同，20/20 注入步骤 finite。
+13. 已完成 v5 小脸自适应验证。原固定 0.4 失败样例从 Control `0.519150` 降至 `0.347885`；v5 同 seed Treatment 为 `0.546983`。日光和室内小脸也分别提升 `+0.053106`、`+0.104686`。所有实际注入步数与自动策略一致且 finite。
 
 因此，当前阶段不是“PuLID-FLUX 能否运行”，而是“如何让 3D inner-face 参考在 latent/token 域中自然融合”。
 
@@ -59,6 +63,8 @@
 | Conservative mask（3D 注入 0.4） | 0.776806 | 0.913053 |
 | High-yaw Control（yaw -43.7855°） | 0.535710 | 0.451441 |
 | High-yaw Treatment（3D 注入 0.4） | 0.658383 | 0.855195 |
+| v4 soft-context 小角度（3D 注入 0.4） | 0.812630 | 0.910659 |
+| v4 soft-context 大角度（3D 注入 0.4） | 0.695429 | 0.865799 |
 
 历史各次独立运行与当前保守 mask 组的 Control PNG SHA256 都是：
 
@@ -139,10 +145,14 @@ neutral reference prompt 与 target prompt 的调色结果几乎相同（原始�
 - 0.4 保守 mask 组：`experiment_output/pulid_flux_conservative_mask_04/`
 - 当前 Control：`experiment_output/pulid_flux_conservative_mask_04/control/final.png`
 - 0.4 Conservative mask：`experiment_output/pulid_flux_conservative_mask_04/treatment/final.png`
-- 高 yaw 纯 3D 调色组：`experiment_output/pulid_flux_high_yaw_44_harmonized_pure_3d_04/`
-- 小角度纯 3D 调色组：`experiment_output/pulid_flux_small_yaw_harmonized_pure_3d_04/`
+- 最新 v4 高 yaw soft-context 组：`experiment_output/pulid_flux_high_yaw_44_harmonized_soft_context_v4_04/`
+- 最新 v4 小角度 soft-context 组：`experiment_output/pulid_flux_small_yaw_harmonized_soft_context_v4_04/`
+- 最新 v5 小脸霓虹组：`experiment_output/pulid_flux_full_body_neon_small_face_adaptive_v5/`
+- 最新 v5 小脸日光组：`experiment_output/pulid_flux_full_body_daylight_small_face_adaptive_v5/`
+- 最新 v5 小脸室内组：`experiment_output/pulid_flux_full_body_interior_small_face_adaptive_v5/`
+- 最新 v5 近景回归：`experiment_output/pulid_flux_closeup_regression_adaptive_v5/`
 - 最新 step-30 预测、对齐图和 mask：`experiment_output/pulid_flux_conservative_mask_04/step_30/`
-- 大 yaw step-30 预测、对齐图和 mask：`experiment_output/pulid_flux_high_yaw_44_harmonized_pure_3d_04/step_30/`
+- 大 yaw step-30 预测、对齐图和 mask：`experiment_output/pulid_flux_high_yaw_44_harmonized_soft_context_v4_04/step_30/`
 - 指标：各实验目录下的 `metrics.json`
 - 每步数值日志：各实验目录下的 `step_log.jsonl`
 
@@ -169,7 +179,7 @@ export PYTHONPATH="$PWD"
   --injection-strength 0.4
 ```
 
-当前代码将 `--injection-strength` 固定为 `0.4`；传入其他值会直接报错。独立输出目录可以复用已生成的 FaceLift Gaussian，避免重复构建 3D 资产。
+当前代码将 `--injection-strength` 的正常脸基准固定为 `0.4`；传入其他基准值会直接报错。默认开启的 `--adaptive-small-face` 会按脸高自动得到更低的实际 strength 和更短的注入窗口。独立输出目录可以复用已生成的 FaceLift Gaussian，避免重复构建 3D 资产。
 
 高 yaw 组复现命令：
 
@@ -178,7 +188,7 @@ export PYTHONPATH="$PWD"
   --reference-image experiment_assets/pulid_reference.jpg \
   --reference-origin 'downloaded_external_real_photo; original_url_not_recorded' \
   --no-reference-generated \
-  --output-dir experiment_output/pulid_flux_high_yaw_44_harmonized_pure_3d_04 \
+  --output-dir experiment_output/pulid_flux_high_yaw_44_harmonized_soft_context_v4_04 \
   --seed 20260818 \
   --guidance 4.0 \
   --pulid-id-weight 0.5 \
@@ -194,9 +204,9 @@ export PYTHONPATH="$PWD"
 
 1. 不要继续简单降低全程固定注入强度；0.4 与 0.6 都出现同类伪影。
 2. 不再使用像素层 `pred_x0` 合成；保留“纯皮肤估计、完整 inner-face 应用、保守核心注入”的纯 3D 调色方案。
-3. 用当前姿态标定补跑未调色 3D 基线，再严格量化纯 3D 调色本身的收益。
-4. 保留当前保守 mask 作为新基线，并尝试随 timestep 衰减的注入权重。
-5. 评估只注入中间若干步，而不是从 step 30 一直持续到 step 49。
+3. v4 已解决调色覆盖缺口和大部分 token 边缘突变；后续优先在更多人物、光照和 yaw 上验证泛化，不要只针对当前两张图继续调参。
+4. 保留当前保守 mask、v5 调色和 `0.4` 正常脸基准；不要删除默认开启的小脸尺寸自适应。
+5. v5 已按脸高缩短小脸注入窗口；后续衰减策略必须与当前同 Control 自适应结果对照。
 6. 大 yaw 下使用姿态感知的非对称 mask，进一步排除远侧脸轮廓和被遮挡区域；当前 bbox 椭圆 mask 在侧脸上仍偏宽。
 7. 用项目自身生成的角色参考图另做一组实验；不要与本轮外部真实照片结果混为同一输入条件。
 8. 每次修改必须保留相同 Control，并同时报告原始身份相似度、3D 相似度、最终姿态和人工自然度检查。

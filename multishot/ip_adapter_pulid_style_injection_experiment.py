@@ -85,11 +85,14 @@ def _harmonize_3d_reference_layout(
     from facexlib.parsing import init_parsing_model
 
     from multishot.pulid_flux_inner_face_experiment import (
+        COLOR_CONTEXT_LABELS,
         HARMONIZATION_POLICY,
         INNER_FACE_LABELS,
+        _color_context_application_mask,
         _conservative_face_core_mask,
         _harmonize_reference,
         _semantic_inner_face_mask,
+        _semantic_probability_mask,
     )
 
     target_preview = Image.open(target_preview_path).convert("RGB")
@@ -116,6 +119,20 @@ def _harmonize_3d_reference_layout(
         device,
         included_labels=INNER_FACE_LABELS,
     )
+    target_color_context_probability = _semantic_probability_mask(
+        target_preview,
+        target_bbox_int,
+        parsing_model,
+        device,
+        included_labels=COLOR_CONTEXT_LABELS,
+    )
+    reference_color_context_probability = _semantic_probability_mask(
+        aligned_reference,
+        aligned_bbox,
+        parsing_model,
+        device,
+        included_labels=COLOR_CONTEXT_LABELS,
+    )
     target_skin = _semantic_inner_face_mask(
         target_preview,
         target_bbox_int,
@@ -140,10 +157,6 @@ def _harmonize_3d_reference_layout(
         np.minimum(np.asarray(target_skin), np.asarray(reference_skin)).astype(np.uint8),
         mode="L",
     )
-    color_application = Image.fromarray(
-        np.minimum(np.asarray(target_semantic), np.asarray(reference_semantic)).astype(np.uint8),
-        mode="L",
-    )
     target_core = _conservative_face_core_mask(target_semantic, target_bbox_int)
     reference_core = _conservative_face_core_mask(reference_semantic, aligned_bbox)
     injection_intersection = np.minimum(
@@ -151,6 +164,12 @@ def _harmonize_3d_reference_layout(
     ).astype(np.uint8)
     final_injection_mask = Image.fromarray(injection_intersection, mode="L").filter(
         ImageFilter.GaussianBlur(radius=2.0)
+    )
+    color_application, color_context_metadata = _color_context_application_mask(
+        Image.fromarray(injection_intersection, mode="L"),
+        target_color_context_probability,
+        reference_color_context_probability,
+        target_bbox_int,
     )
     _, harmonization_images, metadata = _harmonize_reference(
         aligned_reference,
@@ -162,7 +181,8 @@ def _harmonize_3d_reference_layout(
     )
     metadata["reference_mode"] = "pure_3d"
     metadata["estimation_mask"] = "target/reference skin-label intersection"
-    metadata["application_mask"] = "target/reference complete inner-face intersection"
+    metadata["application_mask"] = "soft semantic color-only context ring around injection core"
+    metadata["color_context"] = color_context_metadata
     metadata["target_bbox"] = target_bbox_int
     metadata["reference_bbox"] = aligned_bbox
 
@@ -170,6 +190,8 @@ def _harmonize_3d_reference_layout(
     diagnostics = {
         "target_semantic_inner_face_mask.png": target_semantic,
         "reference_semantic_inner_face_mask.png": reference_semantic,
+        "target_color_context_probability.png": target_color_context_probability,
+        "reference_color_context_probability.png": reference_color_context_probability,
         "target_skin_mask.png": target_skin,
         "reference_skin_mask.png": reference_skin,
         "skin_intersection_mask.png": skin_intersection,
@@ -244,6 +266,15 @@ def run(args) -> dict:
     app = _face_app()
     target_image = Image.open(shared_path)
     target_face = _face_record(_largest_face(app, shared_path), *target_image.size)
+    from multishot.pulid_flux_inner_face_experiment import _adaptive_face_injection_policy
+
+    injection_adaptation = _adaptive_face_injection_policy(
+        target_face["face_bbox"],
+        args.injection_lambda,
+        args.fork_step,
+        args.steps,
+        enabled=args.adaptive_small_face,
+    )
     target_yaw = float(target_face["pose"]["yaw"])
     yaw_gate = {
         "minimum_absolute_yaw": float(args.min_abs_yaw),
@@ -295,8 +326,12 @@ def run(args) -> dict:
         **reference_layout,
     }
     injection_plan = {
-        "lambda": args.injection_lambda,
-        "candidate_id": "fixed_lambda",
+        "lambda": injection_adaptation["effective_strength"],
+        "base_lambda": args.injection_lambda,
+        "candidate_id": "face_height_adaptive",
+        "start_step": injection_adaptation["start_step"],
+        "end_step_exclusive": injection_adaptation["end_step_exclusive"],
+        "adaptation": injection_adaptation,
         "targets": [target],
     }
 
@@ -370,7 +405,9 @@ def run(args) -> dict:
         "fork_step": args.fork_step,
         "ip_adapter_scale": args.ip_adapter_scale,
         "injection_lambda": args.injection_lambda,
-        "effective_trajectory_residual_strength": args.injection_lambda,
+        "effective_trajectory_residual_strength": injection_adaptation["effective_strength"],
+        "adaptive_small_face": args.adaptive_small_face,
+        "small_face_injection_policy": injection_adaptation,
         "dynamic_3d_ip_adapter_enabled": False,
         "harmonize_reference": args.harmonize_reference,
         "harmonization_policy": harmonization_metadata,
@@ -401,6 +438,7 @@ def run(args) -> dict:
             "formula": "target_next += strength * mask * (reference_next - target_next)",
             "reference_state": "VAE x0 noised with fixed reference noise at the target next scheduler timestep",
             "final_state": "clean reference VAE x0",
+            "end_step_exclusive": injection_adaptation["end_step_exclusive"],
         },
         "paths": {
             "comparison": str(contact_sheet),
@@ -436,7 +474,7 @@ def parse_args():
         default=(
             PROJECT_ROOT
             / "experiment_output"
-            / "ip_adapter_small_yaw_harmonized_calibrated_04"
+            / "ip_adapter_small_yaw_harmonized_soft_context_v4_04"
             / "input"
             / "rendered_3d_face.png"
         ),
@@ -453,6 +491,12 @@ def parse_args():
     parser.add_argument("--fork-step", type=int, default=30)
     parser.add_argument("--ip-adapter-scale", type=float, default=0.6)
     parser.add_argument("--injection-lambda", type=float, default=0.4)
+    parser.add_argument(
+        "--adaptive-small-face",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reduce trajectory strength and stop earlier for small detected faces",
+    )
     parser.add_argument("--reference-scale", type=float, default=1.0)
     parser.add_argument("--min-abs-yaw", type=float, default=0.0)
     parser.add_argument("--max-abs-yaw", type=float, default=90.0)

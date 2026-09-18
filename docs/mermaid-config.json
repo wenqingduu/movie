@@ -1,0 +1,19 @@
+{
+  "theme": "base",
+  "fontFamily": "Noto Sans SC",
+  "themeVariables": {
+    "fontFamily": "Noto Sans SC",
+    "fontSize": "16px",
+    "lineColor": "#60758c",
+    "clusterBkg": "#fafcff",
+    "clusterBorder": "#b7c7d9"
+  },
+  "flowchart": {
+    "htmlLabels": true,
+    "curve": "basis",
+    "nodeSpacing": 40,
+    "rankSpacing": 55,
+    "padding": 18,
+    "useMaxWidth": false
+  }
+}

@@ -1,0 +1,1 @@
+FaceLift rendered left view from /root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_side_face_small_face_adaptive_v5/input/facelift/facelift_raw/input/multiview.png

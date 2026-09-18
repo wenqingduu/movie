@@ -1,0 +1,67 @@
+{
+  "source_face_bbox": [
+    340,
+    349,
+    660,
+    795
+  ],
+  "source_crop_bbox": [
+    268,
+    249,
+    732,
+    895
+  ],
+  "target_face_bbox": [
+    242,
+    167,
+    281,
+    222
+  ],
+  "target_paste_bbox": [
+    233,
+    155,
+    290,
+    234
+  ],
+  "face_bbox_on_reference_layout": [
+    242,
+    167,
+    281,
+    222
+  ],
+  "scale_x": 0.121875,
+  "scale_y": 0.121875,
+  "reference_face_scale_ratio": 1.0,
+  "reference_to_target_face_scale": [
+    1.0,
+    1.0
+  ],
+  "target_face_size": [
+    39.0,
+    55.0
+  ],
+  "reference_face_size_on_layout": [
+    39,
+    55
+  ],
+  "layout_mode": "match_target_scale",
+  "reference_mode": "facelift_continuous_gaussian_pose_render",
+  "document_deviation": null,
+  "target_pitch_yaw_roll": [
+    -4.4575700759887695,
+    -0.002395178424194455,
+    3.191657781600952
+  ],
+  "gaussian_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_small_face_harmonized_soft_context_v4_04/input/facelift/facelift_raw/input/gaussians.ply",
+  "gaussian_render_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_small_face_harmonized_soft_context_v4_04/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_m0p0_pitch_m4p5_roll_p3p2_39x55_262_194.png",
+  "gaussian_render_meta_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_small_face_harmonized_soft_context_v4_04/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_m0p0_pitch_m4p5_roll_p3p2_39x55_262_194.meta.json",
+  "gaussian_camera": {
+    "yaw": -0.0024,
+    "pitch": -4.4576,
+    "roll": 3.1917,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 270.0024,
+    "elevation": 4.4576
+  }
+}

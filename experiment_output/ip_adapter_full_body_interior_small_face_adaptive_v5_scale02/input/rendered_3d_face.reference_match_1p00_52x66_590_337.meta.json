@@ -1,0 +1,66 @@
+{
+  "source_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_interior_small_face_adaptive_v5_scale02/input/rendered_3d_face.png",
+  "reference_layout_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_interior_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_52x66_590_337.png",
+  "reference_layout_mask": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_interior_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_52x66_590_337.mask.png",
+  "layout_mode": "match_target_scale",
+  "reference_face_scale_ratio": 1.0,
+  "source_size": [
+    1024,
+    1024
+  ],
+  "output_size": [
+    1024,
+    1024
+  ],
+  "target_face_bbox": [
+    564.27,
+    303.95,
+    616.25,
+    369.79
+  ],
+  "target_face_size": [
+    51.98,
+    65.84
+  ],
+  "detected_face_bbox_on_source": [
+    336.92,
+    313.24,
+    660.15,
+    760.72
+  ],
+  "source_face_crop_bbox": [
+    264,
+    213,
+    733,
+    861
+  ],
+  "resized_source_crop_size": [
+    69,
+    95
+  ],
+  "paste_xy": [
+    556,
+    289
+  ],
+  "face_bbox_on_reference_layout": [
+    567,
+    304,
+    614,
+    370
+  ],
+  "mask_bbox_on_reference_layout": [
+    558,
+    285,
+    623,
+    389
+  ],
+  "reference_face_size_on_layout": [
+    47,
+    66
+  ],
+  "reference_to_target_face_scale": [
+    0.9042,
+    1.0024
+  ],
+  "face_detection_source": "insightface"
+}

@@ -21,6 +21,7 @@ env/
 pretest/*_report.json
 pretest/*_summary.json
 benchmarks/**/download_summary.json
+/experiment_output/pulid_flux_full_body_small_face_harmonized_soft_context_v4_04/
 
 # Local model weights and downloaded checkpoints
 /models/

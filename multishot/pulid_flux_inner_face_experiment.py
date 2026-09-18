@@ -22,7 +22,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 from safetensors.torch import load_file as load_sft
 from torchvision.transforms.functional import normalize
 from transformers import CLIPTextModel, CLIPTokenizer
@@ -55,8 +55,9 @@ REFERENCE_PROMPT = (
     "soft even light, plain gray background, photorealistic"
 )
 INNER_FACE_LABELS = (1, 2, 3, 4, 5, 10, 11, 12, 13)
+COLOR_CONTEXT_LABELS = INNER_FACE_LABELS + (6, 7, 8, 17)
 CONSERVATIVE_MASK_POLICY = {
-    "name": "conservative_inner_face_v2",
+    "name": "conservative_inner_face_v3_subtoken",
     "center_y_fraction": 0.55,
     "radius_x_fraction": 0.43,
     "radius_y_fraction": 0.43,
@@ -64,6 +65,10 @@ CONSERVATIVE_MASK_POLICY = {
     "bottom_fraction": 0.90,
     "erosion_fraction": 0.02,
     "feather_radius_px": 2.0,
+    "semantic_fallback_min_pixels": 64,
+    "semantic_fallback_min_bbox_fraction": 0.05,
+    "tiny_face_semantic_fallback": "conservative_geometric_oval",
+    "packed_token_resampling": "latent_box_area_then_gaussian_1.0_cell_subtoken_pack",
     "excluded_regions": [
         "hairline_and_upper_forehead",
         "temples",
@@ -73,7 +78,7 @@ CONSERVATIVE_MASK_POLICY = {
     ],
 }
 HARMONIZATION_POLICY = {
-    "name": "target_low_frequency_log_rgb_v3_inner_face_apply",
+    "name": "target_low_frequency_log_rgb_v5_small_face_robust",
     "skin_label": 1,
     "skin_erosion_fraction": 0.025,
     "low_frequency_sigma_face_width_fraction": 0.09,
@@ -81,8 +86,88 @@ HARMONIZATION_POLICY = {
     "gain_min": 0.1,
     "gain_max": 1.7,
     "inward_feather_px": 16.0,
+    "color_context_labels": list(COLOR_CONTEXT_LABELS),
+    "color_context_probability_threshold": 0.15,
+    "color_context_radius_face_width_fraction": 0.10,
+    "color_context_guard_face_width_fraction": 0.035,
+    "color_context_closing_face_width_fraction": 0.04,
+    "color_blend_covers_injection_alpha": True,
     "reference_conditioning": "target_prompt",
+    "small_face_skin_support_threshold": 1500,
+    "small_face_illumination_strength": 0.4,
+    "small_face_gain_min": 0.7,
+    "small_face_gain_max": 1.3,
 }
+SMALL_FACE_INJECTION_POLICY = {
+    "name": "face_height_adaptive_v1",
+    "minimum_face_height_px": 48.0,
+    "full_strength_face_height_px": 128.0,
+    "minimum_strength_scale": 0.30,
+    "minimum_active_step_fraction": 0.50,
+}
+
+
+def _adaptive_face_injection_policy(
+    face_bbox: list[float],
+    base_strength: float,
+    start_step: int,
+    total_steps: int,
+    enabled: bool = True,
+) -> dict:
+    """Scale local residual injection only when the detected face is small.
+
+    Absolute face pixels matter here: both FLUX and SDXL ultimately inject into
+    an 8x-downsampled VAE latent. A 49 px-tall face has only about six latent
+    rows, even if it occupies a reasonable fraction of a packed transformer
+    token grid.
+    """
+
+    face_width = max(1.0, float(face_bbox[2] - face_bbox[0]))
+    face_height = max(1.0, float(face_bbox[3] - face_bbox[1]))
+    available_steps = max(1, total_steps - start_step)
+    if enabled:
+        size_scale = min(
+            1.0,
+            max(
+                SMALL_FACE_INJECTION_POLICY["minimum_strength_scale"],
+                face_height / SMALL_FACE_INJECTION_POLICY["full_strength_face_height_px"],
+            ),
+        )
+        active_progress = min(
+            1.0,
+            max(
+                0.0,
+                (face_height - SMALL_FACE_INJECTION_POLICY["minimum_face_height_px"])
+                / (
+                    SMALL_FACE_INJECTION_POLICY["full_strength_face_height_px"]
+                    - SMALL_FACE_INJECTION_POLICY["minimum_face_height_px"]
+                ),
+            ),
+        )
+        active_fraction = (
+            SMALL_FACE_INJECTION_POLICY["minimum_active_step_fraction"]
+            + (1.0 - SMALL_FACE_INJECTION_POLICY["minimum_active_step_fraction"])
+            * active_progress
+        )
+    else:
+        size_scale = 1.0
+        active_progress = 1.0
+        active_fraction = 1.0
+    active_steps = min(available_steps, max(1, int(round(available_steps * active_fraction))))
+    return {
+        **SMALL_FACE_INJECTION_POLICY,
+        "enabled": bool(enabled),
+        "face_width_px": face_width,
+        "face_height_px": face_height,
+        "base_strength": float(base_strength),
+        "size_scale": float(size_scale),
+        "active_step_progress": float(active_progress),
+        "effective_strength": float(base_strength * size_scale),
+        "start_step": int(start_step),
+        "end_step_exclusive": int(start_step + active_steps),
+        "active_steps": int(active_steps),
+        "total_available_steps": int(available_steps),
+    }
 
 
 class _LocalCLIPEmbedder(HFEmbedder):
@@ -101,6 +186,30 @@ class _LocalCLIPEmbedder(HFEmbedder):
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _make_comparison_sheet(items: list[tuple[str, Path]], output_path: Path) -> None:
+    """Write the standard six-panel visual summary for a PuLID experiment."""
+    thumb_size = (420, 420)
+    label_height = 42
+    columns = 3
+    rows = (len(items) + columns - 1) // columns
+    sheet = Image.new(
+        "RGB",
+        (columns * thumb_size[0], rows * (thumb_size[1] + label_height)),
+        "white",
+    )
+    draw = ImageDraw.Draw(sheet)
+    for index, (label, path) in enumerate(items):
+        image = Image.open(path).convert("RGB")
+        image.thumbnail(thumb_size, Image.Resampling.LANCZOS)
+        cell_x = (index % columns) * thumb_size[0]
+        cell_y = (index // columns) * (thumb_size[1] + label_height)
+        x = cell_x + (thumb_size[0] - image.width) // 2
+        sheet.paste(image, (x, cell_y))
+        draw.text((cell_x + 8, cell_y + thumb_size[1] + 10), label, fill="black")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(output_path)
 
 
 def _sha256(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
@@ -292,6 +401,100 @@ def _semantic_inner_face_mask(
     return Image.fromarray((canvas.numpy() * 255).astype(np.uint8), mode="L")
 
 
+def _semantic_probability_mask(
+    image: Image.Image,
+    face_bbox: list[int],
+    parsing_model,
+    device: torch.device,
+    included_labels: tuple[int, ...],
+) -> Image.Image:
+    """Return a soft semantic probability map without argmax/nearest aliasing."""
+    crop_bbox = _expanded_square(face_bbox, image.width, image.height)
+    crop = image.crop(tuple(crop_bbox)).convert("RGB").resize((512, 512), Image.Resampling.LANCZOS)
+    tensor = torch.from_numpy(np.asarray(crop).copy()).permute(2, 0, 1).float().unsqueeze(0) / 255.0
+    tensor = normalize(tensor.to(device), [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    with torch.inference_mode():
+        logits = parsing_model(tensor)[0].float()
+        probabilities = logits.softmax(dim=1)
+        selected = probabilities[:, included_labels].sum(dim=1, keepdim=True)
+        selected = F.interpolate(
+            selected,
+            size=(crop_bbox[3] - crop_bbox[1], crop_bbox[2] - crop_bbox[0]),
+            mode="bilinear",
+            align_corners=False,
+        )[0, 0]
+    canvas = torch.zeros((image.height, image.width), dtype=torch.float32)
+    canvas[crop_bbox[1] : crop_bbox[3], crop_bbox[0] : crop_bbox[2]] = selected.cpu().clamp(0, 1)
+    return Image.fromarray(np.round(canvas.numpy() * 255).astype(np.uint8), mode="L")
+
+
+def _color_context_application_mask(
+    injection_core_mask: Image.Image,
+    target_context_probability: Image.Image,
+    reference_context_probability: Image.Image,
+    target_bbox: list[int],
+) -> tuple[Image.Image, dict]:
+    """Build a generous color-only context ring around the unchanged injection core."""
+    injection_core = np.asarray(injection_core_mask.convert("L"), dtype=np.uint8) > 0
+    target_probability = (
+        np.asarray(target_context_probability.convert("L"), dtype=np.float32) / 255.0
+    )
+    reference_probability = (
+        np.asarray(reference_context_probability.convert("L"), dtype=np.float32) / 255.0
+    )
+    face_width = max(1.0, float(target_bbox[2] - target_bbox[0]))
+    context_radius = max(
+        4,
+        int(round(face_width * HARMONIZATION_POLICY["color_context_radius_face_width_fraction"])),
+    )
+    guard_radius = max(
+        2,
+        int(round(face_width * HARMONIZATION_POLICY["color_context_guard_face_width_fraction"])),
+    )
+    closing_radius = max(
+        2,
+        int(round(face_width * HARMONIZATION_POLICY["color_context_closing_face_width_fraction"])),
+    )
+
+    semantic_context = np.maximum(target_probability, reference_probability) >= HARMONIZATION_POLICY[
+        "color_context_probability_threshold"
+    ]
+    closing_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (closing_radius * 2 + 1, closing_radius * 2 + 1),
+    )
+    semantic_context = cv2.morphologyEx(
+        semantic_context.astype(np.uint8), cv2.MORPH_CLOSE, closing_kernel
+    ).astype(bool)
+
+    context_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (context_radius * 2 + 1, context_radius * 2 + 1),
+    )
+    guard_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (guard_radius * 2 + 1, guard_radius * 2 + 1),
+    )
+    context_support = cv2.dilate(
+        injection_core.astype(np.uint8), context_kernel, iterations=1
+    ).astype(bool)
+    guaranteed_support = cv2.dilate(
+        injection_core.astype(np.uint8), guard_kernel, iterations=1
+    ).astype(bool)
+    application = (context_support & semantic_context) | guaranteed_support
+    application = cv2.morphologyEx(
+        application.astype(np.uint8), cv2.MORPH_CLOSE, closing_kernel
+    )
+    metadata = {
+        "context_radius_px": context_radius,
+        "guard_radius_px": guard_radius,
+        "closing_radius_px": closing_radius,
+        "semantic_context_pixels": int(semantic_context.sum()),
+        "application_pixels": int((application > 0).sum()),
+    }
+    return Image.fromarray((application * 255).astype(np.uint8), mode="L"), metadata
+
+
 def _conservative_face_core_mask(mask: Image.Image, face_bbox: list[int]) -> Image.Image:
     """Restrict a semantic face mask to a conservative, scale-aware facial core.
 
@@ -315,7 +518,23 @@ def _conservative_face_core_mask(mask: Image.Image, face_bbox: list[int]) -> Ima
         (yy >= y1 + CONSERVATIVE_MASK_POLICY["top_fraction"] * face_height)
         & (yy <= y1 + CONSERVATIVE_MASK_POLICY["bottom_fraction"] * face_height)
     )
-    restricted = np.where(oval & vertical_window, values, 0).astype(np.uint8)
+    minimum_semantic_pixels = max(
+        CONSERVATIVE_MASK_POLICY["semantic_fallback_min_pixels"],
+        int(
+            round(
+                face_width
+                * face_height
+                * CONSERVATIVE_MASK_POLICY["semantic_fallback_min_bbox_fraction"]
+            )
+        ),
+    )
+    if int((values > 0).sum()) < minimum_semantic_pixels:
+        # BiSeNet can collapse to a few pixels on a 40-50 px soft face. The
+        # already conservative oval still excludes hairline, ears, cheek/chin
+        # contours, and is safer than either an empty mask or a full bbox.
+        restricted = np.where(oval & vertical_window, 255, 0).astype(np.uint8)
+    else:
+        restricted = np.where(oval & vertical_window, values, 0).astype(np.uint8)
 
     erosion_radius = max(
         1,
@@ -379,8 +598,18 @@ def _harmonize_reference(
         iterations=1,
     )
     color_weights = color_support.astype(np.float32) / 255.0
-    if int((color_support > 0).sum()) < 64:
-        raise RuntimeError("Harmonization skin support is too small")
+    skin_support_pixels = int((color_support > 0).sum())
+    color_support_source = "semantic_skin_intersection"
+    if skin_support_pixels < 64:
+        # When the parser is unreliable on a very small target, estimate only
+        # a robust global median over the same conservative core used by the
+        # injection. This never expands the actual injection region.
+        color_support = np.where(core >= 128, 255, 0).astype(np.uint8)
+        color_weights = color_support.astype(np.float32) / 255.0
+        skin_support_pixels = int((color_support > 0).sum())
+        color_support_source = "conservative_core_fallback"
+    if skin_support_pixels < 16:
+        raise RuntimeError("Harmonization support remains empty after conservative fallback")
 
     sigma = max(
         1.0,
@@ -392,20 +621,42 @@ def _harmonize_reference(
     render_low, blurred_support = _masked_gaussian_blur(render_log, color_weights, sigma)
     target_low, _ = _masked_gaussian_blur(target_log, color_weights, sigma)
 
-    log_gain_min = math.log(HARMONIZATION_POLICY["gain_min"])
-    log_gain_max = math.log(HARMONIZATION_POLICY["gain_max"])
-    illumination_delta = np.clip(target_low - render_low, log_gain_min, log_gain_max)
-    illumination_delta[blurred_support < 0.02] = 0.0
+    small_face_robust = skin_support_pixels < HARMONIZATION_POLICY[
+        "small_face_skin_support_threshold"
+    ]
+    if small_face_robust:
+        # A spatial gain field estimated from only a few hundred pixels is very
+        # sensitive to individual neon highlights. Use a robust constant
+        # log-RGB offset instead, with deliberately tighter gain limits.
+        support = color_support > 0
+        robust_delta = np.median(target_log[support] - render_log[support], axis=0)
+        log_gain_min = math.log(HARMONIZATION_POLICY["small_face_gain_min"])
+        log_gain_max = math.log(HARMONIZATION_POLICY["small_face_gain_max"])
+        robust_delta = np.clip(robust_delta, log_gain_min, log_gain_max)
+        illumination_delta = np.broadcast_to(
+            robust_delta.reshape(1, 1, 3), render_log.shape
+        ).copy()
+        illumination_strength = HARMONIZATION_POLICY["small_face_illumination_strength"]
+        harmonization_estimator = "robust_global_skin_median_log_rgb"
+    else:
+        log_gain_min = math.log(HARMONIZATION_POLICY["gain_min"])
+        log_gain_max = math.log(HARMONIZATION_POLICY["gain_max"])
+        illumination_delta = np.clip(target_low - render_low, log_gain_min, log_gain_max)
+        illumination_delta[blurred_support < 0.02] = 0.0
+        illumination_strength = HARMONIZATION_POLICY["illumination_strength"]
+        harmonization_estimator = "spatial_low_frequency_log_rgb"
     hard_application = (color_application > 0).astype(np.uint8)
     application_distance = cv2.distanceTransform(hard_application, cv2.DIST_L2, 5)
     color_blend = np.clip(
         application_distance / HARMONIZATION_POLICY["inward_feather_px"], 0.0, 1.0
     )
-    applied_delta = HARMONIZATION_POLICY["illumination_strength"] * illumination_delta
+    injection_alpha = core.astype(np.float32) / 255.0
+    color_blend = np.maximum(color_blend, injection_alpha)
+    applied_delta = illumination_strength * illumination_delta
 
-    # Fade the color correction itself to zero only at the outer inner-face
-    # boundary. Eyebrows, eyes, nose, mouth, and lips are intentionally part of
-    # this application mask even though they are excluded from gain estimation.
+    # Fade the color correction to zero only outside the color-only context
+    # ring. Eyebrows, eyes, nose, mouth, lips, and nearby hair context can be in
+    # this application mask even though only skin contributes to gain estimation.
     # This is still a pure 3D image: every output pixel comes from the render, and
     # pred_x0 contributes only the estimated low-frequency log-RGB gain.
     pure_3d_linear = np.exp(render_log + applied_delta * color_blend[..., None])
@@ -452,7 +703,12 @@ def _harmonize_reference(
         **HARMONIZATION_POLICY,
         "sigma_px": sigma,
         "skin_erosion_radius_px": erosion_radius,
-        "skin_support_pixels": int((color_support > 0).sum()),
+        "skin_support_pixels": skin_support_pixels,
+        "color_support_source": color_support_source,
+        "estimator": harmonization_estimator,
+        "small_face_robust_fallback": bool(small_face_robust),
+        "effective_illumination_strength": float(illumination_strength),
+        "effective_gain_bounds": [float(math.exp(log_gain_min)), float(math.exp(log_gain_max))],
         "applied_gain_mean_rgb": [float(value) for value in supported_gain.mean(axis=0)],
         "applied_gain_min_rgb": [float(value) for value in supported_gain.min(axis=0)],
         "applied_gain_max_rgb": [float(value) for value in supported_gain.max(axis=0)],
@@ -460,13 +716,39 @@ def _harmonize_reference(
     return images["harmonized_reference.png"], images, metadata
 
 
-def _token_mask(mask: Image.Image, height: int, width: int, device, dtype):
-    token_h = math.ceil(height / 16)
-    token_w = math.ceil(width / 16)
-    resized = mask.resize((token_w, token_h), Image.Resampling.BILINEAR)
-    values = torch.from_numpy(np.asarray(resized).copy()).float().div_(255.0)
-    values = values.clamp(0, 1).reshape(1, token_h * token_w, 1)
-    return values.to(device=device, dtype=dtype)
+def _token_mask(
+    mask: Image.Image,
+    height: int,
+    width: int,
+    packed_channels: int,
+    device,
+    dtype,
+):
+    """Pack an 8 px VAE-latent mask without collapsing FLUX 2x2 subpositions."""
+
+    latent_h = math.ceil(height / 8)
+    latent_w = math.ceil(width / 8)
+    if latent_h % 2 or latent_w % 2 or packed_channels % 4:
+        raise ValueError(
+            "FLUX subtoken mask requires even latent dimensions and four packed subpositions"
+        )
+    latent_channels = packed_channels // 4
+    resized = mask.resize((latent_w, latent_h), Image.Resampling.BOX).filter(
+        ImageFilter.GaussianBlur(radius=1.0)
+    )
+    latent_mask = torch.from_numpy(np.asarray(resized).copy()).float().div_(255.0)
+    latent_mask = latent_mask.clamp(0, 1).reshape(1, 1, latent_h, latent_w)
+    expanded = latent_mask.expand(-1, latent_channels, -1, -1)
+    packed = rearrange(
+        expanded,
+        "b c (h ph) (w pw) -> b (h w) (c ph pw)",
+        ph=2,
+        pw=2,
+    )
+    return (
+        packed.to(device=device, dtype=dtype),
+        latent_mask.to(device=device, dtype=dtype),
+    )
 
 
 def _decode(ae, packed, height: int, width: int, device: torch.device) -> Image.Image:
@@ -795,6 +1077,13 @@ def run(args) -> Path:
         preview.save(step_dir / "pred_x0.png")
         target_bbox = _bbox(target_face, preview.width, preview.height)
         pose = [float(value) for value in getattr(target_face, "pose", [0.0, 0.0, 0.0])]
+        injection_adaptation = _adaptive_face_injection_policy(
+            target_bbox,
+            args.injection_strength,
+            actual_inject_start,
+            args.steps,
+            enabled=args.adaptive_small_face,
+        )
         _write_json(
             step_dir / "face_detection.json",
             {
@@ -804,6 +1093,7 @@ def run(args) -> Path:
                 "requested_start_step": args.inject_start,
                 "actual_start_step": actual_inject_start,
                 "detection_failures": detection_failures,
+                "injection_adaptation": injection_adaptation,
             },
         )
         absolute_yaw = abs(pose[1])
@@ -880,6 +1170,17 @@ def run(args) -> Path:
         target_semantic_mask = _semantic_inner_face_mask(
             preview, target_bbox, pulid.face_helper.face_parse, device
         )
+        target_color_context_probability = (
+            _semantic_probability_mask(
+                preview,
+                target_bbox,
+                pulid.face_helper.face_parse,
+                device,
+                included_labels=COLOR_CONTEXT_LABELS,
+            )
+            if args.harmonize_reference
+            else None
+        )
         target_skin_mask = (
             _semantic_inner_face_mask(
                 preview,
@@ -895,6 +1196,17 @@ def run(args) -> Path:
         aligned_bbox = _bbox(aligned_face, aligned_reference.width, aligned_reference.height)
         reference_semantic_mask = _semantic_inner_face_mask(
             aligned_reference, aligned_bbox, pulid.face_helper.face_parse, device
+        )
+        reference_color_context_probability = (
+            _semantic_probability_mask(
+                aligned_reference,
+                aligned_bbox,
+                pulid.face_helper.face_parse,
+                device,
+                included_labels=COLOR_CONTEXT_LABELS,
+            )
+            if args.harmonize_reference
+            else None
         )
         reference_skin_mask = (
             _semantic_inner_face_mask(
@@ -919,31 +1231,69 @@ def run(args) -> Path:
             ImageFilter.GaussianBlur(radius=CONSERVATIVE_MASK_POLICY["feather_radius_px"])
         )
         final_mask.save(step_dir / "final_inner_face_mask.png")
-        packed_mask = _token_mask(final_mask, args.height, args.width, device, current.dtype)
+        packed_mask, latent_subtoken_mask = _token_mask(
+            final_mask,
+            args.height,
+            args.width,
+            current.shape[-1],
+            device,
+            current.dtype,
+        )
+        latent_subtoken_mask_preview = (
+            latent_subtoken_mask[0, 0]
+            .float()
+            .mul(255.0)
+            .round()
+            .clamp(0, 255)
+            .byte()
+            .cpu()
+            .numpy()
+        )
+        Image.fromarray(latent_subtoken_mask_preview, mode="L").save(
+            step_dir / "latent_subtoken_inner_face_mask.png"
+        )
+        packed_mask_preview = (
+            packed_mask.float().mean(dim=-1)
+            .reshape(math.ceil(args.height / 16), math.ceil(args.width / 16))
+            .mul(255.0)
+            .round()
+            .clamp(0, 255)
+            .byte()
+            .cpu()
+            .numpy()
+        )
+        Image.fromarray(packed_mask_preview, mode="L").save(
+            step_dir / "packed_token_inner_face_mask.png"
+        )
 
         trajectory_reference = aligned_reference
         harmonization_metadata = None
         if args.harmonize_reference:
             target_skin_mask.save(step_dir / "target_skin_mask.png")
             reference_skin_mask.save(step_dir / "reference_skin_mask.png")
+            target_color_context_probability.save(
+                step_dir / "target_color_context_probability.png"
+            )
+            reference_color_context_probability.save(
+                step_dir / "reference_color_context_probability.png"
+            )
             skin_intersection = Image.fromarray(
                 np.minimum(np.asarray(target_skin_mask), np.asarray(reference_skin_mask)).astype(np.uint8),
                 mode="L",
             )
             skin_intersection.save(step_dir / "skin_intersection_mask.png")
-            color_application_mask = Image.fromarray(
-                np.minimum(
-                    np.asarray(target_semantic_mask),
-                    np.asarray(reference_semantic_mask),
-                ).astype(np.uint8),
-                mode="L",
+            color_application_mask, color_context_metadata = _color_context_application_mask(
+                Image.fromarray(intersection, mode="L"),
+                target_color_context_probability,
+                reference_color_context_probability,
+                target_bbox,
             )
             composite_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
                 aligned_reference,
                 preview,
                 skin_intersection,
                 color_application_mask,
-                Image.fromarray(intersection, mode="L"),
+                final_mask,
                 target_bbox,
             )
             if args.harmonization_reference_mode == "pure_3d":
@@ -955,6 +1305,7 @@ def run(args) -> Path:
                 trajectory_reference = composite_reference
             harmonization_metadata["reference_conditioning"] = args.reference_conditioning
             harmonization_metadata["reference_mode"] = args.harmonization_reference_mode
+            harmonization_metadata["color_context"] = color_context_metadata
             for filename, image in harmonization_images.items():
                 if args.harmonization_reference_mode == "pure_3d" and filename in {
                     "harmonization_blend_mask.png",
@@ -1013,21 +1364,39 @@ def run(args) -> Path:
                     args.pulid_id_weight,
                 )
                 treatment_base = treatment + (t_next - t) * treatment_pred
+                injection_active = step < injection_adaptation["end_step_exclusive"]
                 reference_next = trajectory[step + 1].to(device=device, dtype=treatment_base.dtype)
-                residual = args.injection_strength * packed_mask * (reference_next - treatment_base)
-                treatment_next = treatment_base + residual
+                if injection_active:
+                    residual = (
+                        injection_adaptation["effective_strength"]
+                        * packed_mask
+                        * (reference_next - treatment_base)
+                    )
+                    treatment_next = treatment_base + residual
+                else:
+                    residual = torch.zeros_like(treatment_base)
+                    treatment_next = treatment_base
                 finite = bool(torch.isfinite(treatment_next).all().item())
+                packed_token_support = packed_mask.amax(dim=-1) > 0.01
+                latent_subposition_support = latent_subtoken_mask > 0.01
                 step_logs.append(
                     {
                         "step": step,
                         "timestep": t,
                         "next_timestep": t_next,
-                        "injected": True,
+                        "injected": bool(injection_active),
+                        "injection_status": "applied" if injection_active else "size_adaptive_stop",
                         "actual_plugin_start_step": actual_inject_start,
+                        "adaptive_end_step_exclusive": injection_adaptation["end_step_exclusive"],
+                        "base_injection_strength": args.injection_strength,
+                        "effective_injection_strength": injection_adaptation["effective_strength"],
                         "render_pitch_yaw_roll": pose,
                         "reference_trajectory_index": step + 1,
-                        "mask_token_count": int((packed_mask > 0.01).sum().item()),
-                        "mask_fraction": float((packed_mask > 0.01).float().mean().item()),
+                        "mask_token_count": int(packed_token_support.sum().item()),
+                        "mask_latent_subposition_count": int(
+                            latent_subposition_support.sum().item()
+                        ),
+                        "mask_fraction": float(latent_subtoken_mask.float().mean().item()),
                         "target_next_base_norm": float(treatment_base.float().norm().item()),
                         "reference_next_norm": float(reference_next.float().norm().item()),
                         "injection_residual_norm": float(residual.float().norm().item()),
@@ -1043,6 +1412,26 @@ def run(args) -> Path:
         treatment_image = _decode(ae, treatment, args.height, args.width, device)
         control_image.save(control_dir / "final.png")
         treatment_image.save(treatment_dir / "final.png")
+        if args.harmonize_reference and args.harmonization_reference_mode == "pure_3d":
+            comparison_reference_path = step_dir / "harmonized_3d_face.png"
+            comparison_reference_label = "harmonized pure 3D reference"
+        elif args.harmonize_reference:
+            comparison_reference_path = step_dir / "harmonized_reference.png"
+            comparison_reference_label = "harmonized composite reference"
+        else:
+            comparison_reference_path = step_dir / "aligned_3d_face.png"
+            comparison_reference_label = "aligned 3D reference"
+        _make_comparison_sheet(
+            [
+                ("identity reference", output / "input" / "identity_reference.png"),
+                ("continuous FaceLift 3D render", step_dir / "rendered_3d_face.png"),
+                (comparison_reference_label, comparison_reference_path),
+                ("step-30 pred_x0", step_dir / "pred_x0.png"),
+                ("PuLID-FLUX control", control_dir / "final.png"),
+                ("PuLID-FLUX + 3D residual", treatment_dir / "final.png"),
+            ],
+            output / "comparison.jpg",
+        )
         with (output / "step_log.jsonl").open("w", encoding="utf-8") as handle:
             for item in step_logs:
                 handle.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -1100,6 +1489,9 @@ def run(args) -> Path:
                 "plugin_start_step": args.inject_start,
                 "plugin_actual_start_step": actual_inject_start,
                 "plugin_strength": args.injection_strength,
+                "effective_plugin_strength": injection_adaptation["effective_strength"],
+                "adaptive_small_face": args.adaptive_small_face,
+                "small_face_injection_policy": injection_adaptation,
                 "required_absolute_yaw_range": [args.min_abs_yaw, args.max_abs_yaw],
                 "harmonize_reference": args.harmonize_reference,
                 "harmonization_reference_mode": args.harmonization_reference_mode,
@@ -1185,7 +1577,13 @@ def parse_args():
         "--injection-strength",
         type=float,
         default=0.4,
-        help="Fixed at 0.4 for the conservative-mask experiment",
+        help="Normal-size face baseline strength; small faces scale this value automatically",
+    )
+    parser.add_argument(
+        "--adaptive-small-face",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reduce local strength and stop earlier when the detected face is small",
     )
     parser.add_argument("--guidance", type=float, default=4.0)
     parser.add_argument("--pulid-id-weight", type=float, default=1.0)
@@ -1232,7 +1630,7 @@ def parse_args():
     if args.steps != 50 or args.inject_start != 30:
         raise ValueError("This experiment is fixed to 50 steps with injection starting at step 30")
     if abs(args.injection_strength - 0.4) > 1e-8:
-        raise ValueError("Injection strength is fixed to 0.4 for the conservative-mask experiment")
+        raise ValueError("Base injection strength is fixed to 0.4 for this experiment")
     if args.pulid_id_weight < 0:
         raise ValueError("PuLID id weight must be non-negative")
     if args.min_abs_yaw < 0 or args.max_abs_yaw < args.min_abs_yaw:

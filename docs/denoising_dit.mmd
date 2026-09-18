@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph MAIN["主去噪链 · FLUX / DiT"]
+        direction LR
+        IN[随机噪声 zT<br/>文本：T5 / CLIP<br/>身份：PuLID] --> PRE[FLUX Transformer 去噪<br/>step 0-29]
+        PRE --> S30[step 30<br/>得到 pred_x0]
+        S30 --> STEP[后段 Transformer 去噪<br/>得到 z_base,next]
+        STEP --> MIX["人脸区域加权融合<br/>z_next = (1 - α4ch) × z_base,next<br/>+ α4ch × z_ref,next"]
+        MIX --> DEC[AE 解码<br/>还原空间布局]
+        DEC --> OUT[一致性首帧]
+    end
+
+    subgraph FACE["3D 人脸参考分支"]
+        direction LR
+        DET[InsightFace<br/>姿态、位置、脸高 h] --> RENDER[FaceLift 3D 渲染<br/>Gaussian + 姿态标定]
+        RENDER --> REF[3D 参考脸<br/>光照匹配 + BiSeNet Mask]
+        REF --> AE[AE 编码<br/>构建同时间参考轨迹]
+        AE --> PACK[2×2 latent packing<br/>Mask 展开到四个子位置]
+        DET -. 脸高 h .-> MASK["融合权重<br/>α4ch = λ(h) × packed Mask"]
+        REF -. 人脸 Mask M .-> MASK
+    end
+
+    S30 --> DET
+    PACK --> MIX
+    MASK --> MIX
+
+    classDef main fill:#f0ebff,stroke:#7659e8,color:#282044,stroke-width:1.5px;
+    classDef face fill:#e9f8f5,stroke:#079b92,color:#143b43,stroke-width:1.5px;
+    classDef mix fill:#123d49,stroke:#123d49,color:#ffffff,stroke-width:2px;
+    class IN,PRE,S30,STEP,DEC,OUT main;
+    class DET,RENDER,REF,AE,PACK,MASK face;
+    class MIX mix;

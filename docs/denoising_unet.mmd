@@ -1,0 +1,30 @@
+flowchart TB
+    subgraph MAIN["主去噪链 · SDXL / U-Net"]
+        direction LR
+        IN[随机噪声 zT<br/>文本：CLIP<br/>身份：IP-Adapter] --> PRE[U-Net 基础去噪<br/>step 0-29]
+        PRE --> S30[step 30<br/>得到 pred_x0]
+        S30 --> STEP[后段 U-Net 去噪<br/>得到 z_base,next]
+        STEP --> MIX["人脸区域加权融合<br/>z_next = (1 - α) × z_base,next<br/>+ α × z_ref,next"]
+        MIX --> DEC[VAE 解码]
+        DEC --> OUT[一致性首帧]
+    end
+
+    subgraph FACE["3D 人脸参考分支"]
+        direction LR
+        DET[InsightFace<br/>姿态、位置、脸高 h] --> RENDER[FaceLift 3D 渲染<br/>Gaussian + 姿态标定]
+        RENDER --> REF[3D 参考脸<br/>光照匹配 + BiSeNet Mask]
+        REF --> VAE[VAE 编码并加同时间噪声<br/>得到 z_ref,next]
+        DET -. 脸高 h .-> MASK["融合权重<br/>α = λ(h) × 人脸 Mask M"]
+        REF -. 人脸 Mask M .-> MASK
+    end
+
+    S30 --> DET
+    VAE --> MIX
+    MASK --> MIX
+
+    classDef main fill:#eaf1ff,stroke:#4b78d1,color:#142840,stroke-width:1.5px;
+    classDef face fill:#e9f8f5,stroke:#079b92,color:#143b43,stroke-width:1.5px;
+    classDef mix fill:#123d49,stroke:#123d49,color:#ffffff,stroke-width:2px;
+    class IN,PRE,S30,STEP,DEC,OUT main;
+    class DET,RENDER,REF,VAE,MASK face;
+    class MIX mix;

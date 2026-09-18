@@ -1,0 +1,14 @@
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("file:///tmp/NotoSansSC.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+svg,
+.mermaid,
+.nodeLabel,
+.edgeLabel,
+.cluster-label {
+  font-family: "Noto Sans SC", sans-serif !important;
+}

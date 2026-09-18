@@ -1,0 +1,266 @@
+{
+  "status": "completed",
+  "model": "sdxl-base-1.0-ip-adapter",
+  "prompt": "wide establishing shot, full body from head to shoes, one man standing far from camera, person occupies thirty-five percent of frame height, small visible face looking toward camera, rainy neon city street at night, dark casual clothes, cinematic, photorealistic",
+  "seed": 20260825,
+  "total_steps": 50,
+  "fork_step": 30,
+  "ip_adapter_scale": 0.2,
+  "injection_lambda": 0.4,
+  "effective_trajectory_residual_strength": 0.27968750000000003,
+  "adaptive_small_face": true,
+  "small_face_injection_policy": {
+    "name": "face_height_adaptive_v1",
+    "minimum_face_height_px": 48.0,
+    "full_strength_face_height_px": 128.0,
+    "minimum_strength_scale": 0.3,
+    "minimum_active_step_fraction": 0.5,
+    "enabled": true,
+    "face_width_px": 69.04000000000002,
+    "face_height_px": 89.5,
+    "base_strength": 0.4,
+    "size_scale": 0.69921875,
+    "active_step_progress": 0.51875,
+    "effective_strength": 0.27968750000000003,
+    "start_step": 30,
+    "end_step_exclusive": 45,
+    "active_steps": 15,
+    "total_available_steps": 20
+  },
+  "dynamic_3d_ip_adapter_enabled": false,
+  "harmonize_reference": true,
+  "harmonization_policy": {
+    "name": "target_low_frequency_log_rgb_v5_small_face_robust",
+    "skin_label": 1,
+    "skin_erosion_fraction": 0.025,
+    "low_frequency_sigma_face_width_fraction": 0.09,
+    "illumination_strength": 0.8,
+    "gain_min": 0.1,
+    "gain_max": 1.7,
+    "inward_feather_px": 16.0,
+    "color_context_labels": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      10,
+      11,
+      12,
+      13,
+      6,
+      7,
+      8,
+      17
+    ],
+    "color_context_probability_threshold": 0.15,
+    "color_context_radius_face_width_fraction": 0.1,
+    "color_context_guard_face_width_fraction": 0.035,
+    "color_context_closing_face_width_fraction": 0.04,
+    "color_blend_covers_injection_alpha": true,
+    "reference_conditioning": "target_prompt",
+    "small_face_skin_support_threshold": 1500,
+    "small_face_illumination_strength": 0.4,
+    "small_face_gain_min": 0.7,
+    "small_face_gain_max": 1.3,
+    "sigma_px": 6.21,
+    "skin_erosion_radius_px": 2,
+    "skin_support_pixels": 2461,
+    "color_support_source": "semantic_skin_intersection",
+    "estimator": "spatial_low_frequency_log_rgb",
+    "small_face_robust_fallback": false,
+    "effective_illumination_strength": 0.8,
+    "effective_gain_bounds": [
+      0.10000000000000002,
+      1.7
+    ],
+    "applied_gain_mean_rgb": [
+      0.2281506508588791,
+      0.24197937548160553,
+      0.2557400166988373
+    ],
+    "applied_gain_min_rgb": [
+      0.15848931670188904,
+      0.15848931670188904,
+      0.15848931670188904
+    ],
+    "applied_gain_max_rgb": [
+      0.544929027557373,
+      0.5989821553230286,
+      0.6756595373153687
+    ],
+    "reference_mode": "pure_3d",
+    "estimation_mask": "target/reference skin-label intersection",
+    "application_mask": "soft semantic color-only context ring around injection core",
+    "color_context": {
+      "context_radius_px": 7,
+      "guard_radius_px": 2,
+      "closing_radius_px": 3,
+      "semantic_context_pixels": 10161,
+      "application_pixels": 4563
+    },
+    "target_bbox": [
+      484,
+      143,
+      553,
+      233
+    ],
+    "reference_bbox": [
+      485,
+      144,
+      551,
+      233
+    ]
+  },
+  "target_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      483.8,
+      143.27,
+      552.84,
+      232.77
+    ],
+    "pose": {
+      "pitch": 2.077,
+      "yaw": 3.7752,
+      "roll": -1.1529
+    },
+    "detection_source": "antelopev2"
+  },
+  "yaw_gate": {
+    "minimum_absolute_yaw": 0.0,
+    "maximum_absolute_yaw": 30.0,
+    "detected_yaw": 3.7752,
+    "accepted": true
+  },
+  "continuous_3d_render_face": {
+    "face_id": "face_0",
+    "face_bbox": [
+      344.88,
+      326.1,
+      667.73,
+      775.47
+    ],
+    "pose": {
+      "pitch": -4.0174,
+      "yaw": 5.8626,
+      "roll": -1.3684
+    },
+    "detection_source": "antelopev2"
+  },
+  "continuous_3d_reference": {
+    "mode": "target_pose_gaussian_render",
+    "gaussian_model": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_small_face_harmonized_soft_context_v4_04/input/facelift/facelift_raw/input/gaussians.ply",
+    "provided_render": null
+  },
+  "reference_layout": {
+    "reference_source_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.png",
+    "reference_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/harmonization/harmonized_3d_face.png",
+    "reference_mask_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_69x90_518_188.mask.png",
+    "reference_face_bbox": [
+      487,
+      143,
+      551,
+      233
+    ],
+    "reference_crop_bbox_on_source": [
+      272,
+      225,
+      740,
+      877
+    ],
+    "reference_crop_meta_path": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_69x90_518_188.meta.json",
+    "reference_mask_source": "insightface",
+    "reference_layout_mode": "match_target_scale",
+    "reference_face_scale_ratio": 1.0,
+    "reference_to_target_face_scale": [
+      0.927,
+      1.0056
+    ],
+    "target_face_size": [
+      69.04,
+      89.5
+    ],
+    "reference_face_size_on_layout": [
+      64,
+      90
+    ],
+    "unharmonized_reference_image": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_69x90_518_188.png"
+  },
+  "mask_policy": {
+    "name": "conservative_semantic_inner_face_intersection",
+    "matches_pulid_geometric_core": true,
+    "semantic_face_parser_intersection": true,
+    "documented_deviation": null
+  },
+  "trajectory_policy": {
+    "formula": "target_next += strength * mask * (reference_next - target_next)",
+    "reference_state": "VAE x0 noised with fixed reference noise at the target next scheduler timestep",
+    "final_state": "clean reference VAE x0",
+    "end_step_exclusive": 45
+  },
+  "paths": {
+    "comparison": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/comparison.jpg",
+    "reference_portrait": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/original_reference.jpg",
+    "continuous_3d_render": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.png",
+    "scale_matched_3d_layout": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/harmonization/harmonized_3d_face.png",
+    "unharmonized_scale_matched_3d_layout": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/rendered_3d_face.reference_match_1p00_69x90_518_188.png",
+    "target_face_mask": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/input/harmonization/final_injection_mask.png",
+    "shared_step_x0": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/shared/step_30_x0.png",
+    "branches": {
+      "ip_adapter_baseline": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/branches/ip_adapter_baseline.png",
+      "ip_adapter_plus_pulid_style_residual": "/root/autodl-tmp/movie/experiment_output/ip_adapter_full_body_neon_small_face_adaptive_v5_scale02/branches/ip_adapter_plus_pulid_style_residual.png"
+    }
+  },
+  "branch_definition": {
+    "ip_adapter_baseline": "original portrait IP-Adapter only",
+    "ip_adapter_plus_pulid_style_residual": "original portrait IP-Adapter plus local same-timestep 3D trajectory residual"
+  },
+  "metrics": {
+    "ip_adapter_baseline": {
+      "reference_portrait_cosine": 0.146287,
+      "continuous_3d_render_cosine": 0.121811,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          483.94,
+          144.19,
+          553.05,
+          232.29
+        ],
+        "pose": {
+          "pitch": 6.212,
+          "yaw": 3.7068,
+          "roll": -2.0952
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 0.0,
+      "target_face_bbox_rgb_mae_vs_baseline": 0.0
+    },
+    "ip_adapter_plus_pulid_style_residual": {
+      "reference_portrait_cosine": 0.325628,
+      "continuous_3d_render_cosine": 0.341211,
+      "face_detected": true,
+      "final_face": {
+        "face_id": "face_0",
+        "face_bbox": [
+          484.56,
+          143.69,
+          552.65,
+          233.64
+        ],
+        "pose": {
+          "pitch": -1.6904,
+          "yaw": 3.1684,
+          "roll": -1.1198
+        },
+        "detection_source": "antelopev2"
+      },
+      "whole_image_rgb_mae_vs_baseline": 0.74843,
+      "target_face_bbox_rgb_mae_vs_baseline": 19.707354
+    }
+  },
+  "elapsed_seconds": 156.255
+}

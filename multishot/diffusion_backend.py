@@ -541,6 +541,10 @@ class OpenSourceDiffusionBackend:
         targets = injection_plan.get("targets", [])
         if injection_lambda <= 0 or not targets:
             return latents, []
+        injection_start_step = int(injection_plan.get("start_step", 0))
+        injection_end_step = int(injection_plan.get("end_step_exclusive", 1 << 30))
+        if not injection_start_step <= step_index < injection_end_step:
+            return latents, []
 
         # 这里给 lambda 再乘一个全局缩放，避免 VAE latent 直接硬替换导致脸区过亮/破碎。
         # 想观察更强效果时可以调环境变量 MULTISHOT_INJECTION_SCALE。
@@ -604,6 +608,10 @@ class OpenSourceDiffusionBackend:
         injection_lambda = float(injection_plan.get("lambda", 0.0) or 0.0)
         targets = injection_plan.get("targets", [])
         if injection_lambda <= 0 or not targets:
+            return latents, []
+        injection_start_step = int(injection_plan.get("start_step", 0))
+        injection_end_step = int(injection_plan.get("end_step_exclusive", 1 << 30))
+        if not injection_start_step <= step_index < injection_end_step:
             return latents, []
 
         scale = float(os.getenv("MULTISHOT_TRAJECTORY_INJECTION_SCALE", "1.0"))

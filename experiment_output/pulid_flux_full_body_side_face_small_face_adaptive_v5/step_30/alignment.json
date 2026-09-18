@@ -1,0 +1,67 @@
+{
+  "source_face_bbox": [
+    447,
+    353,
+    737,
+    770
+  ],
+  "source_crop_bbox": [
+    382,
+    259,
+    802,
+    864
+  ],
+  "target_face_bbox": [
+    272,
+    111,
+    316,
+    182
+  ],
+  "target_paste_bbox": [
+    262,
+    101,
+    326,
+    193
+  ],
+  "face_bbox_on_reference_layout": [
+    272,
+    115,
+    316,
+    179
+  ],
+  "scale_x": 0.15172413793103448,
+  "scale_y": 0.15172413793103448,
+  "reference_face_scale_ratio": 1.0,
+  "reference_to_target_face_scale": [
+    1.0,
+    0.9014
+  ],
+  "target_face_size": [
+    44.0,
+    71.0
+  ],
+  "reference_face_size_on_layout": [
+    44,
+    64
+  ],
+  "layout_mode": "match_target_scale",
+  "reference_mode": "facelift_continuous_gaussian_pose_render",
+  "document_deviation": null,
+  "target_pitch_yaw_roll": [
+    6.168855667114258,
+    74.02159881591797,
+    6.036360740661621
+  ],
+  "gaussian_model_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_side_face_small_face_adaptive_v5/input/facelift/facelift_raw/input/gaussians.ply",
+  "gaussian_render_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_side_face_small_face_adaptive_v5/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_p74p0_pitch_p6p2_roll_p6p0_44x71_294_146.png",
+  "gaussian_render_meta_path": "/root/autodl-tmp/movie/experiment_output/pulid_flux_full_body_side_face_small_face_adaptive_v5/input/facelift/facelift_raw/input/pose_renders/pose_ys_m1_rs_1_yaw_p74p0_pitch_p6p2_roll_p6p0_44x71_294_146.meta.json",
+  "gaussian_camera": {
+    "yaw": 55.0,
+    "pitch": 6.1689,
+    "roll": 6.0364,
+    "yaw_sign": -1.0,
+    "roll_sign": 1.0,
+    "azimuth": 215.0,
+    "elevation": -6.1689
+  }
+}
