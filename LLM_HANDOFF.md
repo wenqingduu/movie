@@ -348,9 +348,9 @@ export MULTISHOT_INSIGHTFACE_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvide
 
 SDPA 会显示 padding-mask 警告；当前 batch size 为 1 且本次输入无 padding，冒烟运行正常。
 
-### 12.3 本轮代码改动（尚未提交）
+### 12.3 本轮代码改动（已提交并推送）
 
-当前工作树以提交 `00dc1ec` 为 HEAD；本轮以下改动尚未 commit/push：
+本轮代码和文档已提交并推送到 `origin/main`；交接时以远端 `main` 最新 HEAD 为当前基线。改动包括：
 
 - `pretest/run_wan22_i2v_manifest.py`：新增 manifest 驱动的 Wan2.2 I2V 批处理入口。模型只加载一次，支持断点续跑、`reuse_video_from`，记录输入/输出 SHA256、seed 和耗时；正式默认 49 帧、50 steps、24 fps。
 - `multishot/pulid_flux_inner_face_experiment.py`：新增 `--facelift-result`，允许一个角色跨镜头复用同一份 FaceLift Gaussian，不必每个镜头重建 3D 资产。
@@ -361,7 +361,7 @@ SDPA 会显示 padding-mask 警告；当前 batch size 为 1 且本次输入无 
 - `pretest/evaluate_video_identity.py`：新增逐帧原始身份锚定评估；输出 first/mean/median/P10/min/last/drift/回归斜率/检测覆盖率、成对差值、仅实际注入镜头聚合及抽帧图。
 - `multishot/pulid_flux_inner_face_experiment.py`：另增加批量评测 face gate。检测脸高小于 24 px 或从 step 30 起连续 3 次无可靠脸时，不做 3D 注入，完成 Control 并让 Treatment 明确复用；同时修复延迟检测循环未使用 inference mode 导致无脸镜头计算图累积和 OOM 的问题。默认参数仍保持旧行为，pilot runner 显式启用 gate。
 
-提交前 `git status --short` 应看到上述代码、两份文档和三个新增脚本。`outputs/`、模型、独立环境及外部 Wan 源码均被忽略，不会随 movie 仓库提交。
+正常交接时 `git status --short` 应为空。`outputs/`、模型、独立环境及外部 Wan 源码均被忽略，不会随 movie 仓库提交。
 
 ### 12.4 角色资产和姿态标定
 
@@ -488,7 +488,7 @@ Wan2.2 已完成 manifest 中全部 16 个 job，0 失败。其中 12 条是实�
 
 ### 12.9 下一步
 
-1. 先检查和提交当前未提交代码与文档；输出、视频和模型不进 Git。
+1. 先确认工作树干净、模型路径及当前输出都存在；输出、视频和模型不进 Git。
 2. 为本 episode 的 4 个多角色镜头生成 Control，并在 Treatment 侧复用，才能形成完整 12 镜头有序 episode；当前只完成 8 个单角色镜头。
 3. 在同一个 episode 上跑 IP-Adapter 首帧对照；保持 Wan、seed、提示词和视频评估后端不变。
 4. 将首帧/视频结果整理成统一 episode 汇总，明确区分 `plugin_applied`、`control_reused` 和检测失败。
