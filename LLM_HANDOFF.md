@@ -1,6 +1,6 @@
 # 3D 人脸注入实验大模型交接文档
 
-> 最后更新：2026-09-18。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `EVALUATION_PLAN.md`。当前代码只有 pure-3D 调色与 trajectory residual 注入路径。
+> 最后更新：2026-09-20。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `EVALUATION_PLAN.md`。当前代码只有 pure-3D 调色与 trajectory residual 注入路径。EntityBench + Wan2.2 的首个单镜头 Control/Treatment 端到端冒烟实验已经跑通，但视频级指标尚未计算，不能据此下最终结论。
 
 ## 1. 当前任务状态
 
@@ -12,7 +12,7 @@
 当前最终实现同时具备：
 
 1. FaceLift Gaussian 连续姿态渲染。
-2. 当前人物 Gaussian 专属的正/负高 yaw camera 标定。
+2. 每个人物 Gaussian 独立执行 near-front、正高 yaw、负高 yaw camera 标定。
 3. 纯 3D 光照与色调匹配，不把 `pred_x0` 像素合成到参考图。
 4. target/reference BiSeNet 语义 inner-face 交集。
 5. 排除发际线、太阳穴、外脸颊、下巴边缘和耳朵的保守核心 mask。
@@ -55,13 +55,21 @@ step-30 latent
 
 `experiment_output/pulid_flux_conservative_mask_04/input/facelift/facelift_raw/input/gaussians.pose_calibration.json`
 
-当前 profile 只覆盖绝对 yaw `35°～65°`：
+旧实验人物的历史标定文件只覆盖绝对 yaw `35°～65°`：
 
 - 正大 yaw：`positive_high_yaw_v1`
 - 负大 yaw：`negative_high_yaw_v1`
 - 小角度不应用补偿，继续使用原始 camera mapping。
 
 该标定是当前人物 Gaussian 的模型级标定，不能未经验证直接用于其他人物的 `gaussians.ply`。
+
+EntityBench 新身份已改为对每个 Gaussian 单独生成新版标定，默认相机网格为 pitch `[-25,-10,5,20]`、yaw `[-55,-47.5,-40,-20,0,20,40,47.5,55]`、roll `[-20,0,20]`，共 108 个样本，并拟合：
+
+- `near_frontal_v2`：覆盖 yaw `±35°`、pitch `±35°`、roll `±45°`。
+- `positive_high_yaw_v1`：正大 yaw。
+- `negative_high_yaw_v1`：负大 yaw。
+
+因此新人物即使是小 yaw，也必须先读取自己的 `<gaussians.ply>.pose_calibration.json`；不要复用历史人物的标定参数。
 
 ### 3.2 纯 3D 调色
 
@@ -270,7 +278,7 @@ export PYTHONPATH="$PWD"
 2. PuLID 小角度 Control 的原始身份 cosine 已很高；v5 子位置 mask 回归为 `0.868990`，但仍需跨人物验证。
 3. IP-Adapter 小角度虽然身份显著提升，但仍能看出 3D 五官与材质域。
 4. 当前光照迁移只有低频 RGB gain，不处理镜面高光、阴影几何和材质分解。
-5. 高 yaw 标定只针对当前人物 Gaussian，跨人物泛化尚未验证。
+5. 姿态标定参数不能跨人物 Gaussian 直接复用；当前做法是每个新身份独立采样和拟合。
 6. 大 yaw mask 仍是 bbox 驱动的保守核心，可继续尝试随 yaw 非对称收缩远侧脸。
 
 ## 10. 推荐下一步
@@ -290,3 +298,200 @@ export PYTHONPATH="$PWD"
 - 不要按绝对 yaw 选择缓存侧脸；必须根据带符号 pose 连续渲染。
 - 不要提交 `.venv`、模型权重、checkpoint 或第三方缓存。
 - 先确认 GPU 空闲和磁盘空间，再运行新实验。
+
+## 12. 2026-09-20 EntityBench + Wan2.2 冒烟评测进展
+
+### 12.1 当前评测范围
+
+当前先验证“插件式单角色首帧注入”，不评测多角色注入，也暂不引入跨镜头历史记忆：
+
+```text
+完整有序 EntityBench episode
+├── Control：首帧不做 3D trajectory residual 注入
+└── Treatment：单角色镜头启用当前插件
+    └── 两者使用相同提示词、seed、Wan 参数，只改变首帧是否注入
+```
+
+首轮 episode：
+
+`00053051-5f7e-314f-85e0-517ec18f3b08__run719__i35_j44__T120`
+
+- 共 12 个有序镜头，其中 8 个单角色镜头、4 个多角色镜头。
+- 单角色镜头包含 Viktor 7 个、Roman 1 个。
+- 当前只完成首个单角色镜头 `2:1` 的 PuLID-FLUX 首帧和 Wan2.2 Control/Treatment 视频。
+- 原计划的首轮上限仍为 20 个视频；必须先完成本镜头视频级指标和人工检查，再决定是否扩展剩余镜头。
+- 多角色镜头当前不启用插件；若纳入 episode 级完整性统计，应直接复用同一个 Control 视频，不能把它解释为“技术路线不支持多角色”。多角色代码与评测另行实现。
+
+### 12.2 模型、源码与运行环境
+
+- Wan checkpoint：`models/video/Wan2.2-TI2V-5B/`
+- 固定模型 revision：`921dbaf3f1674a56f47e83fb80a34bac8a8f203e`
+- 已核验 23/23 文件，目录约 32 GiB，五个核心文件 SHA256 与上游一致。
+- 官方 Wan 源码：`/root/autodl-tmp/Wan2.2`
+- 固定 Wan commit：`42bf4cfaa384bc21833865abc2f9e6c0e67233dc`
+- Wan 独立环境：`/root/autodl-tmp/wan22-venv`
+- CUDA 11 兼容 ONNX Runtime 层：`/root/autodl-tmp/ort-cuda11`，版本 `onnxruntime-gpu==1.17.1`。
+
+姿态标定和视频帧身份评估需显式使用 CUDA 11 兼容层：
+
+```bash
+export PYTHONPATH=/root/autodl-tmp/ort-cuda11:$PWD
+export MULTISHOT_INSIGHTFACE_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
+```
+
+项目现有 `models/insightface/models/buffalo_l.zip` 不完整，失败解压还留下了空的 `buffalo_l/`，不要使用。代码已改为检测实际 `.onnx` 文件，并在 buffalo_l 不可用时回退到完整的 `third_party/PuLID/models/antelopev2/`。
+
+官方 Wan 源码目录不属于 movie Git 仓库，当前有两个本地兼容修改，迁移时必须保留或重新应用：
+
+1. `wan/__init__.py`：将与 TI2V 无关的 WanS2V/WanAnimate 改为可选导入，避免额外音频/SAM 依赖阻断 TI2V。
+2. `wan/modules/model.py`：使用项目已有 attention 包装器，使其走 PyTorch SDPA fallback；没有安装 `flash-attn`。
+
+SDPA 会显示 padding-mask 警告；当前 batch size 为 1 且本次输入无 padding，冒烟运行正常。
+
+### 12.3 本轮代码改动（尚未提交）
+
+当前工作树以提交 `00dc1ec` 为 HEAD；本轮以下改动尚未 commit/push：
+
+- `pretest/run_wan22_i2v_manifest.py`：新增 manifest 驱动的 Wan2.2 I2V 批处理入口。模型只加载一次，支持断点续跑、`reuse_video_from`，记录输入/输出 SHA256、seed 和耗时；正式默认 49 帧、50 steps、24 fps。
+- `multishot/pulid_flux_inner_face_experiment.py`：新增 `--facelift-result`，允许一个角色跨镜头复用同一份 FaceLift Gaussian，不必每个镜头重建 3D 资产。
+- `multishot/diffusion_backend.py`：修复旧 diffusers 对 `Path` 参数的兼容问题，并加入纯本地 SDXL Base 配置用于身份资产生成。
+- `multishot/face_analysis_backend.py`：增加 AntelopeV2 fallback 与内存 BGR 帧分析入口。
+- `multishot/facelift_pose_calibration.py`：新增 `near_frontal_v2` 标定，并扩展为每身份 108 个 camera 样本。
+- `pretest/prepare_entitybench_pulid_pairs.py`：新增有序 episode 的 PuLID-FLUX 首帧对批处理；按角色复用身份图和 Gaussian，支持断点续跑，并为不适用镜头写入 Control 复用任务。
+- `pretest/evaluate_video_identity.py`：新增逐帧原始身份锚定评估；输出 first/mean/median/P10/min/last/drift/回归斜率/检测覆盖率、成对差值、仅实际注入镜头聚合及抽帧图。
+- `multishot/pulid_flux_inner_face_experiment.py`：另增加批量评测 face gate。检测脸高小于 24 px 或从 step 30 起连续 3 次无可靠脸时，不做 3D 注入，完成 Control 并让 Treatment 明确复用；同时修复延迟检测循环未使用 inference mode 导致无脸镜头计算图累积和 OOM 的问题。默认参数仍保持旧行为，pilot runner 显式启用 gate。
+
+提交前 `git status --short` 应看到上述代码、两份文档和三个新增脚本。`outputs/`、模型、独立环境及外部 Wan 源码均被忽略，不会随 movie 仓库提交。
+
+### 12.4 角色资产和姿态标定
+
+本轮资产根目录：
+
+`outputs/entitybench_wan22_smoke/episode_00053051/assets/`
+
+已生成并通过 InsightFace 检测的 SDXL 身份参考：
+
+| 角色 | 身份参考 | SHA256 | 检测置信度 | yaw |
+|---|---|---|---:|---:|
+| Viktor | `characters/viktor_reference.png` | `65d63d708810ed005875e42e2a20bb458d5a58a955ba539d86b62ac37e678bd5` | 0.8221 | +1.1261° |
+| Roman | `characters/roman_reference.png` | `cd5b0ea0f30dccf8dfd2122f620322698e1fbc5fe47482b2a6d7decc6207232c` | 0.7777 | +6.9414° |
+
+两名角色均已成功构建 FaceLift 资产并分别完成 108 样本标定：
+
+- Viktor：`assets/faces_3d/viktor/facelift_result.json`
+- Roman：`assets/faces_3d/roman/facelift_result.json`
+- 标定文件位于各自 Gaussian 旁边：`facelift_raw/input/gaussians.pose_calibration.json`
+
+留出验证误差（pitch/yaw/roll，单位为度）：
+
+| 角色 | near-front | 正大 yaw | 负大 yaw |
+|---|---|---|---|
+| Viktor | 0.6565 / 0.6956 / 2.0023 | 3.3162 / 2.0568 / 5.0931 | 3.0171 / 4.1205 / 1.9944 |
+| Roman | 1.2850 / 1.4996 / 0.8031 | 0.8563 / 0.9625 / 0.1494 | 1.9169 / 3.2425 / 3.3183 |
+
+### 12.5 首个镜头的关键结果
+
+镜头 `2:1` 是 Viktor 的 Quarry Tunnels 近景。第一次用未覆盖 near-front 的旧标定方式运行时：
+
+- Control 原始身份 cosine：`0.634860`
+- Treatment 原始身份 cosine：`0.310273`
+- 变化：`-0.324586`
+- 3D Control / Treatment cosine：`0.433145 / 0.576538`
+- Treatment pitch 被错误推到 `-37.52°`，而目标约为 `-21.50°`。
+
+这不是注入强度或调色问题，而是新人物 Gaussian 的 canonical camera 映射不同。加入该人物自己的 `near_frontal_v2` 标定后，以完全相同 prompt、seed 和 Control 重跑：
+
+| 指标 | Control | Treatment | 变化 |
+|---|---:|---:|---:|
+| 原始身份 cosine | 0.634860 | 0.692452 | +0.057593 |
+| 匹配角度 3D cosine | 0.548087 | 0.770440 | +0.222353 |
+
+- step-30 目标姿态：pitch/yaw/roll `[-21.498, -1.553, +5.250]°`
+- 最终 Control：`[-22.498, -2.227, +5.089]°`
+- 最终 Treatment：`[-21.684, -0.639, +3.968]°`
+- 对比图：`outputs/entitybench_wan22_smoke/episode_00053051/first_frames/shot_2_1/pulid_flux/comparison.jpg`
+- 结构化结果：同目录的 `metrics.json`、`config.json` 和 `step_log.jsonl`
+
+结论仅限该镜头：每个新 Gaussian 必须做自己的 near-front 标定，否则即使检测 yaw 很小，渲染 pitch 仍可能严重偏离并破坏身份。
+
+### 12.6 已完成的 Wan2.2 Control/Treatment 视频
+
+运行清单与报告：
+
+- `outputs/entitybench_wan22_smoke/episode_00053051/wan_manifest_shot_2_1.json`
+- `outputs/entitybench_wan22_smoke/episode_00053051/wan_report_shot_2_1.json`
+
+固定参数：Wan2.2-TI2V-5B，`1280×704`，49 帧，24 fps，50 steps，shift 5.0，guidance 5.0，seed `719001`。两组除首帧外使用相同条件。
+
+| 条件 | 视频 | SHA256 | 耗时 |
+|---|---|---|---:|
+| Control | `videos/shot_2_1/control.mp4` | `1f0399d6b9af6e57d821d5d64c2ab40590978f0beec52f2441e9aed436b1ea39` | 180.97 s |
+| Treatment | `videos/shot_2_1/treatment.mp4` | `7f5dd6f72c2b049eee1294069ff3cb33bba780c1231ea7cc75f5e230b615bde6` | 184.71 s |
+
+最小 Wan 预检视频另存于：
+
+`outputs/entitybench_wan22_smoke/preflight/wan_preflight.mp4`
+
+### 12.7 单角色镜头批量结果
+
+本 episode 的 8 个单角色镜头已全部完成 PuLID-FLUX 首帧处理：
+
+| 镜头 | 首帧处理 | 原因或原始身份 cosine 变化 |
+|---|---|---|
+| `2:1` | 实际注入 | `0.634860 → 0.692452`，`+0.057593` |
+| `4:1` | 复用 Control | step-30 脸框约 `10×13 px`，低于 24 px gate |
+| `4:4` | 实际注入 | `0.584101 → 0.740027`，`+0.155926` |
+| `4:5` | 实际注入 | `0.461436 → 0.590090`，`+0.128654` |
+| `4:6` | 复用 Control | 后视镜头，连续 3 次无可靠脸 |
+| `5:1` | 复用 Control | 坠落远景，连续 3 次无可靠脸 |
+| `5:2` | 复用 Control | 亮窗剪影，连续 3 次无可靠脸 |
+| `6:1` | 实际注入 | `0.654499 → 0.624917`，`-0.029583`；必须保留的负例 |
+
+首帧批处理记录和完整 Wan manifest：
+
+- `outputs/entitybench_wan22_smoke/episode_00053051/pulid_first_frame_report.json`
+- `outputs/entitybench_wan22_smoke/episode_00053051/wan_manifest_single_character.json`
+
+Wan2.2 已完成 manifest 中全部 16 个 job，0 失败。其中 12 条是实际生成的视频：首个 `2:1` 两条既有视频、新生成 10 条；4 个被 gate 排除的 Treatment 直接复制对应 Control。其余参数仍固定为 `1280×704`、49 帧、24 fps、50 steps、shift 5.0、guidance 5.0；完整运行耗时约 1818.9 秒。
+
+- Wan 报告：`outputs/entitybench_wan22_smoke/episode_00053051/wan_report_single_character.json`
+- 视频目录：`outputs/entitybench_wan22_smoke/episode_00053051/videos/`
+
+### 12.8 视频逐帧身份结果
+
+评估始终以原始角色身份图为锚点，使用同一 AntelopeV2/InsightFace 后端逐帧检测，并且不丢弃检测失败帧。完整结构化报告与抽帧：
+
+- `outputs/entitybench_wan22_smoke/episode_00053051/video_identity_report_single_character.json`
+- `outputs/entitybench_wan22_smoke/episode_00053051/video_identity_visuals_all/`
+
+仅统计 4 个实际注入镜头的宏平均：
+
+| 视频指标 | Control | Treatment | 平均成对变化 | 正增益镜头 |
+|---|---:|---:|---:|---:|
+| first | 0.580580 | 0.659802 | +0.079222 | 3/4 |
+| mean | 0.471482 | 0.524104 | +0.052622 | 4/4 |
+| median | 0.483601 | 0.542074 | +0.058473 | 4/4 |
+| P10 | 0.357968 | 0.390752 | +0.032784 | 3/4 |
+| minimum | 0.313891 | 0.317463 | +0.003572 | 2/4 |
+| detection coverage | 0.816326 | 0.811224 | -0.005102 | 1/4 |
+
+逐镜头 mean/P10 变化：
+
+| 镜头 | mean Δ | P10 Δ | 解释 |
+|---|---:|---:|---|
+| `2:1` | +0.054721 | +0.050342 | 近静态镜头，身份增益全程稳定 |
+| `4:4` | +0.095317 | +0.083142 | 全程正增益，但从首帧 +0.162829 衰减到末帧 +0.070241 |
+| `4:5` | +0.049390 | +0.008334 | 动态走近后身份明显漂移；最低帧差值 -0.075667 |
+| `6:1` | +0.011115 | -0.010488 | 首帧 -0.024962、覆盖率 -0.040817；低照消失过程不构成明确成功 |
+
+结论只能写成：在这个单 episode pilot 的 4 个可注入镜头中，平均身份分数提高，但最差帧、时序衰减和检测覆盖没有稳定改善；不能宣称插件已经普遍解决视频身份一致性。`4:5` 和 `6:1` 是后续定位时序传播失败的重要负例，不能删除或只展示较好镜头。
+
+### 12.9 下一步
+
+1. 先检查和提交当前未提交代码与文档；输出、视频和模型不进 Git。
+2. 为本 episode 的 4 个多角色镜头生成 Control，并在 Treatment 侧复用，才能形成完整 12 镜头有序 episode；当前只完成 8 个单角色镜头。
+3. 在同一个 episode 上跑 IP-Adapter 首帧对照；保持 Wan、seed、提示词和视频评估后端不变。
+4. 将首帧/视频结果整理成统一 episode 汇总，明确区分 `plugin_applied`、`control_reused` 和检测失败。
+5. 再决定是否扩展到另外两个 pilot episode；当前样本量仍不足以做普遍结论。
+
+不要恢复 self-attention、旧像素合成调色或 geometric-only mask，也不要因为 `6:1` 是负例而从评测中删除。

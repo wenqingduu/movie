@@ -188,14 +188,23 @@ def run(args) -> Path:
                     print(json.dumps(sample, ensure_ascii=False))
 
     valid = [sample for sample in samples if sample["face_detected"]]
-    positive = [sample for sample in valid if sample["camera_pose"]["yaw"] > 0]
-    negative = [sample for sample in valid if sample["camera_pose"]["yaw"] < 0]
-    if len(positive) < 8 or len(negative) < 8:
+    near_frontal = [
+        sample for sample in valid if abs(float(sample["camera_pose"]["yaw"])) <= 20.0
+    ]
+    positive = [sample for sample in valid if sample["camera_pose"]["yaw"] >= 35.0]
+    negative = [sample for sample in valid if sample["camera_pose"]["yaw"] <= -35.0]
+    if len(near_frontal) < 8 or len(positive) < 8 or len(negative) < 8:
         raise RuntimeError(
-            f"Insufficient detected calibration samples: positive={len(positive)}, negative={len(negative)}"
+            "Insufficient detected calibration samples: "
+            f"near_frontal={len(near_frontal)}, positive={len(positive)}, negative={len(negative)}"
         )
 
     profiles = [
+        _fit_profile(
+            "near_frontal_v2",
+            near_frontal,
+            {"pitch": [-35.0, 35.0], "yaw": [-34.999, 34.999], "roll": [-45.0, 45.0]},
+        ),
         _fit_profile(
             "positive_high_yaw_v1",
             positive,
@@ -285,12 +294,14 @@ def parse_args():
     parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--reuse-samples", action="store_true")
-    parser.add_argument("--pitch-values", type=float, nargs="+", default=[-15.0, 0.0, 15.0])
+    parser.add_argument(
+        "--pitch-values", type=float, nargs="+", default=[-25.0, -10.0, 5.0, 20.0]
+    )
     parser.add_argument(
         "--yaw-values",
         type=float,
         nargs="+",
-        default=[-55.0, -47.5, -40.0, 40.0, 47.5, 55.0],
+        default=[-55.0, -47.5, -40.0, -20.0, 0.0, 20.0, 40.0, 47.5, 55.0],
     )
     parser.add_argument("--roll-values", type=float, nargs="+", default=[-20.0, 0.0, 20.0])
     parser.add_argument(
@@ -298,6 +309,7 @@ def parse_args():
         type=_parse_pose,
         action="append",
         default=[
+            {"pitch": -20.0, "yaw": 0.0, "roll": 5.0},
             {"pitch": 13.4097, "yaw": 54.6798, "roll": 10.6905},
             {"pitch": 0.2023, "yaw": -43.7855, "roll": -6.7964},
         ],

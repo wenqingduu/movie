@@ -373,6 +373,26 @@ def _build_facelift_asset_record(reference_path: Path, output: Path) -> dict:
     return result
 
 
+def _load_facelift_asset_record(result_path: Path) -> dict:
+    """Load a character-level FaceLift asset built during asset preparation."""
+
+    result_path = result_path.resolve()
+    if not result_path.exists():
+        raise FileNotFoundError(result_path)
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    model_path = Path(result.get("model_path", ""))
+    if not model_path.is_absolute():
+        model_path = (result_path.parent / model_path).resolve()
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"FaceLift result points to a missing Gaussian model: {model_path}"
+        )
+    result["model_path"] = str(model_path)
+    result.setdefault("facelift_output_dir", str(model_path.parent))
+    result["asset_record_path"] = str(result_path)
+    return result
+
+
 def _semantic_inner_face_mask(
     image: Image.Image,
     face_bbox: list[int],
@@ -890,7 +910,8 @@ def _preflight_model_files(args) -> None:
     }
     if args.fp8:
         required[PULID_ROOT / "models" / "flux-dev-fp8.safetensors"] = 11_000_000_000
-    if args.build_facelift:
+    needs_facelift_build = args.build_facelift and not getattr(args, "facelift_result", None)
+    if needs_facelift_build:
         facelift_root = PROJECT_ROOT / "third_party" / "FaceLift"
         required.update(
             {
@@ -913,7 +934,7 @@ def _preflight_model_files(args) -> None:
         if not path.exists() or path.stat().st_size < minimum
     ]
     partials = list((PULID_ROOT / "models").rglob("*.aria2"))
-    if args.build_facelift:
+    if needs_facelift_build:
         partials.extend((PROJECT_ROOT / "third_party" / "FaceLift" / "checkpoints").rglob("*.aria2"))
     if bad or partials:
         details = bad + [f"unfinished aria2 download: {path}" for path in partials]
@@ -935,7 +956,12 @@ def run(args) -> Path:
     for path in (step_dir, control_dir, treatment_dir, output / "input", output / "trajectory"):
         path.mkdir(parents=True, exist_ok=True)
 
-    facelift_asset = _build_facelift_asset_record(reference_path, output) if args.build_facelift else None
+    if args.facelift_result:
+        facelift_asset = _load_facelift_asset_record(Path(args.facelift_result))
+    elif args.build_facelift:
+        facelift_asset = _build_facelift_asset_record(reference_path, output)
+    else:
+        facelift_asset = None
 
     device = torch.device("cuda")
     old_cwd = Path.cwd()
@@ -1016,6 +1042,7 @@ def run(args) -> Path:
 
         actual_inject_start = args.inject_start
         detection_failures = []
+        target_face = None
         while True:
             try:
                 target_face = _largest_face(pulid.app, preview)
@@ -1027,13 +1054,27 @@ def run(args) -> Path:
                 break
             except RuntimeError as exc:
                 detection_failures.append({"step": actual_inject_start, "reason": str(exc)})
+                target_face = None
+                retry_limit_reached = (
+                    args.max_face_detection_retries is not None
+                    and len(detection_failures) >= args.max_face_detection_retries
+                )
+                if retry_limit_reached and args.skip_unreliable_face:
+                    break
                 if actual_inject_start >= args.steps - 1:
+                    if args.skip_unreliable_face:
+                        break
                     raise RuntimeError(
                         "No reliable face was detected before the final denoising step: "
                         f"{detection_failures}"
                     ) from exc
                 t, t_next = timesteps[actual_inject_start], timesteps[actual_inject_start + 1]
-                current = current + (t_next - t) * detect_pred
+                # This retry loop sits outside the main inference_mode block.
+                # Keep every delayed-detection step graph-free; otherwise a
+                # rear-view/no-face shot retains an ever-growing FLUX graph and
+                # eventually exhausts VRAM before reaching the explicit skip.
+                with torch.inference_mode():
+                    current = current + (t_next - t) * detect_pred
                 step_logs.append(
                     {
                         "step": actual_inject_start,
@@ -1046,19 +1087,134 @@ def run(args) -> Path:
                 )
                 actual_inject_start += 1
                 detect_t = timesteps[actual_inject_start]
-                detect_pred = _velocity(
-                    model,
-                    current,
-                    target_cond,
-                    detect_t,
-                    args.guidance,
-                    id_embedding,
-                    args.pulid_id_weight,
-                )
-                pred_x0 = current - detect_t * detect_pred
-                preview = _decode(ae, pred_x0, args.height, args.width, device)
+                with torch.inference_mode():
+                    detect_pred = _velocity(
+                        model,
+                        current,
+                        target_cond,
+                        detect_t,
+                        args.guidance,
+                        id_embedding,
+                        args.pulid_id_weight,
+                    )
+                    pred_x0 = current - detect_t * detect_pred
+                    preview = _decode(ae, pred_x0, args.height, args.width, device)
                 preview.save(step_dir / f"pred_x0_retry_step_{actual_inject_start}.png")
         preview.save(step_dir / "pred_x0.png")
+
+        def finish_with_control_reuse(skip_reason: str, face=None, bbox=None) -> Path:
+            """Finish PuLID denoising and explicitly reuse Control as Treatment."""
+
+            control = current.detach().clone()
+            with torch.inference_mode():
+                for step in range(actual_inject_start, args.steps):
+                    t, t_next = timesteps[step], timesteps[step + 1]
+                    pred = detect_pred if step == actual_inject_start else _velocity(
+                        model,
+                        control,
+                        target_cond,
+                        t,
+                        args.guidance,
+                        id_embedding,
+                        args.pulid_id_weight,
+                    )
+                    control = control + (t_next - t) * pred
+                    step_logs.append(
+                        {
+                            "step": step,
+                            "timestep": t,
+                            "next_timestep": t_next,
+                            "injected": False,
+                            "injection_status": "skipped_unreliable_or_tiny_face",
+                            "skip_reason": skip_reason,
+                        }
+                    )
+            control_image = _decode(ae, control, args.height, args.width, device)
+            control_image.save(control_dir / "final.png")
+            control_image.save(treatment_dir / "final.png")
+            with (output / "step_log.jsonl").open("w", encoding="utf-8") as handle:
+                for item in step_logs:
+                    handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+            _make_comparison_sheet(
+                [
+                    ("identity reference", output / "input" / "identity_reference.png"),
+                    ("step-30 pred_x0", step_dir / "pred_x0.png"),
+                    ("PuLID-FLUX control (Treatment reused)", control_dir / "final.png"),
+                ],
+                output / "comparison.jpg",
+            )
+            try:
+                identity_cosine = _face_similarity(pulid.app, reference, control_image)
+                final_pose = _face_pose_record(pulid.app, control_image)
+            except RuntimeError:
+                identity_cosine = None
+                final_pose = None
+            target_pose = None
+            if face is not None:
+                target_pose = {
+                    "pitch_yaw_roll": [
+                        float(value) for value in getattr(face, "pose", [0.0, 0.0, 0.0])
+                    ],
+                    "det_score": float(face.det_score),
+                    "bbox": [float(value) for value in face.bbox],
+                }
+            _write_json(
+                output / "metrics.json",
+                {
+                    "plugin_skipped": True,
+                    "skip_reason": skip_reason,
+                    "reference_control_insightface_cosine": identity_cosine,
+                    "reference_treatment_insightface_cosine": identity_cosine,
+                    "treatment_minus_control": 0.0 if identity_cosine is not None else None,
+                    "pose": {
+                        "step_30_target": target_pose,
+                        "control_final": final_pose,
+                        "treatment_final": final_pose,
+                    },
+                },
+            )
+            face_size = None
+            if bbox is not None:
+                face_size = {"width_px": bbox[2] - bbox[0], "height_px": bbox[3] - bbox[1]}
+            _write_json(
+                output / "config.json",
+                {
+                    "prompt": args.prompt,
+                    "reference_conditioning": args.reference_conditioning,
+                    "seed": args.seed,
+                    "width": args.width,
+                    "height": args.height,
+                    "steps": args.steps,
+                    "guidance": args.guidance,
+                    "pulid_id_weight": args.pulid_id_weight,
+                    "plugin_start_step": args.inject_start,
+                    "plugin_actual_start_step": actual_inject_start,
+                    "plugin_strength": args.injection_strength,
+                    "adaptive_small_face": args.adaptive_small_face,
+                    "plugin_skipped": True,
+                    "skip_reason": skip_reason,
+                    "face_size": face_size,
+                    "minimum_injection_face_height_px": args.min_injection_face_height,
+                    "maximum_face_detection_retries": args.max_face_detection_retries,
+                    "detection_failures": detection_failures,
+                    "treatment_reuses_control": True,
+                    "harmonize_reference": args.harmonize_reference,
+                    "reference_image": str(reference_path),
+                    "reference_image_sha256": _sha256(reference_path),
+                    "reference_image_generated": args.reference_generated,
+                    "reference_image_origin": args.reference_origin,
+                    "facelift_asset_record": (
+                        str(Path(args.facelift_result).resolve()) if args.facelift_result else None
+                    ),
+                },
+            )
+            return output
+
+        if target_face is None:
+            return finish_with_control_reuse(
+                f"no reliable face detected in {len(detection_failures)} attempts "
+                f"through denoising step {actual_inject_start}"
+            )
         target_bbox = _bbox(target_face, preview.width, preview.height)
         pose = [float(value) for value in getattr(target_face, "pose", [0.0, 0.0, 0.0])]
         injection_adaptation = _adaptive_face_injection_policy(
@@ -1080,6 +1236,14 @@ def run(args) -> Path:
                 "injection_adaptation": injection_adaptation,
             },
         )
+        target_face_height = target_bbox[3] - target_bbox[1]
+        if target_face_height < args.min_injection_face_height:
+            return finish_with_control_reuse(
+                f"detected face height {target_face_height}px is below the "
+                f"{args.min_injection_face_height}px injection threshold",
+                face=target_face,
+                bbox=target_bbox,
+            )
         absolute_yaw = abs(pose[1])
         if not args.min_abs_yaw <= absolute_yaw <= args.max_abs_yaw:
             raise RuntimeError(
@@ -1471,6 +1635,9 @@ def run(args) -> Path:
                 "reference_image_sha256": _sha256(reference_path),
                 "reference_image_generated": args.reference_generated,
                 "reference_image_origin": args.reference_origin,
+                "facelift_asset_record": (
+                    str(Path(args.facelift_result).resolve()) if args.facelift_result else None
+                ),
                 "reference_mode": align_meta["reference_mode"],
                 "facelift_step_2d": int(os.getenv("MULTISHOT_FACELIFT_STEP_2D", "50")),
                 "document_deviations": [align_meta["document_deviation"]]
@@ -1506,7 +1673,7 @@ def run(args) -> Path:
                                 / "third_party/FaceLift/checkpoints/mvdiffusion/pipeckpts/unet/diffusion_pytorch_model.safetensors"
                             ),
                         }
-                        if args.build_facelift
+                        if args.build_facelift and not args.facelift_result
                         else {}
                     ),
                 },
@@ -1560,6 +1727,30 @@ def parse_args():
     parser.add_argument("--onnx-provider", choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--min-face-confidence", type=float, default=0.5)
     parser.add_argument(
+        "--min-injection-face-height",
+        type=int,
+        default=0,
+        help=(
+            "When positive, skip 3D injection below this detected face height and save an "
+            "identical Control/Treatment pair for explicit benchmark reuse"
+        ),
+    )
+    parser.add_argument(
+        "--skip-unreliable-face",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save Control and reuse it as Treatment when no reliable face is detected",
+    )
+    parser.add_argument(
+        "--max-face-detection-retries",
+        type=int,
+        default=None,
+        help=(
+            "Optional retry cap after the requested injection step; requires "
+            "--skip-unreliable-face to turn an exhausted retry budget into Control reuse"
+        ),
+    )
+    parser.add_argument(
         "--min-abs-yaw",
         type=float,
         default=0.0,
@@ -1573,6 +1764,14 @@ def parse_args():
     )
     parser.add_argument("--fp8", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--build-facelift", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--facelift-result",
+        default=None,
+        help=(
+            "Reuse a character-level FaceLift result JSON instead of rebuilding the 3D asset "
+            "inside every shot output directory"
+        ),
+    )
     parser.add_argument(
         "--harmonize-reference",
         action=argparse.BooleanOptionalAction,
@@ -1592,6 +1791,12 @@ def parse_args():
         raise ValueError("Base injection strength is fixed to 0.4 for this experiment")
     if args.pulid_id_weight < 0:
         raise ValueError("PuLID id weight must be non-negative")
+    if args.min_injection_face_height < 0:
+        raise ValueError("Minimum injection face height must be non-negative")
+    if args.max_face_detection_retries is not None and args.max_face_detection_retries < 1:
+        raise ValueError("Maximum face detection retries must be at least 1")
+    if args.max_face_detection_retries is not None and not args.skip_unreliable_face:
+        raise ValueError("A face detection retry cap requires --skip-unreliable-face")
     if args.min_abs_yaw < 0 or args.max_abs_yaw < args.min_abs_yaw:
         raise ValueError("Yaw bounds must satisfy 0 <= min_abs_yaw <= max_abs_yaw")
     return args

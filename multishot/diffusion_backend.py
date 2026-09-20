@@ -29,6 +29,28 @@ MODEL_CONFIGS = {
         "guidance_scale": 5.0,
         "negative_prompt": "",
     },
+    "sdxl-base-1.0": {
+        "repo_id": "stabilityai/stable-diffusion-xl-base-1.0",
+        "path": PROJECT_ROOT / "models" / "diffusion" / "sdxl-base-1.0",
+        "variant": "fp16",
+        "pipeline": "sdxl",
+        "height": 1024,
+        "width": 1024,
+        "steps": 50,
+        "guidance_scale": 5.0,
+        "negative_prompt": "",
+    },
+    "stabilityai/stable-diffusion-xl-base-1.0": {
+        "repo_id": "stabilityai/stable-diffusion-xl-base-1.0",
+        "path": PROJECT_ROOT / "models" / "diffusion" / "sdxl-base-1.0",
+        "variant": "fp16",
+        "pipeline": "sdxl",
+        "height": 1024,
+        "width": 1024,
+        "steps": 50,
+        "guidance_scale": 5.0,
+        "negative_prompt": "",
+    },
     "sdxl-base-1.0-ip-adapter": {
         "repo_id": "stabilityai/stable-diffusion-xl-base-1.0",
         "path": PROJECT_ROOT / "models" / "diffusion" / "sdxl-base-1.0",
@@ -149,7 +171,7 @@ class OpenSourceDiffusionBackend:
 
         pipeline_cls = StableDiffusionXLPipeline if self.pipeline_type == "sdxl" else StableDiffusionPipeline
         pipe = pipeline_cls.from_pretrained(
-            self.model_path,
+            str(self.model_path),
             **load_kwargs,
         )
 

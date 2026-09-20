@@ -39,6 +39,17 @@ class InsightFaceBackend:
         ]
         model_name = os.getenv("MULTISHOT_INSIGHTFACE_MODEL_NAME", "buffalo_l")
         model_root = Path(os.getenv("MULTISHOT_INSIGHTFACE_ROOT", str(INSIGHTFACE_ROOT)))
+        # The PuLID runtime already vendors a complete AntelopeV2 pack.  Prefer
+        # that local pack when the requested default model has not been
+        # extracted, instead of allowing InsightFace to start an implicit
+        # network download during a reproducible benchmark run.
+        requested_model_dir = model_root / "models" / model_name
+        if not requested_model_dir.is_dir() or not any(requested_model_dir.glob("*.onnx")):
+            fallback_root = PROJECT_ROOT / "third_party" / "PuLID"
+            fallback_name = "antelopev2"
+            if (fallback_root / "models" / fallback_name).is_dir():
+                model_root = fallback_root
+                model_name = fallback_name
         app = FaceAnalysis(
             name=model_name,
             root=str(model_root),
@@ -57,6 +68,13 @@ class InsightFaceBackend:
         image = cv2.imread(str(image_path))
         if image is None:
             return []
+
+        return self.analyze_bgr(image)
+
+    def analyze_bgr(self, image):
+        """Analyze an in-memory OpenCV BGR frame without temporary files."""
+
+        import cv2
 
         app = self._load()
         variants = [(image, 1.0, "original")]
