@@ -127,6 +127,11 @@ def run(args) -> dict:
         t5_cpu=True,
         convert_model_dtype=True,
     )
+    if torch.cuda.is_available():
+        report["cuda_memory_after_model_load_bytes"] = {
+            "allocated": int(torch.cuda.memory_allocated()),
+            "reserved": int(torch.cuda.memory_reserved()),
+        }
 
     completed_outputs: dict[str, Path] = {}
     started = time.perf_counter()
@@ -148,6 +153,8 @@ def run(args) -> dict:
             "seed": seed,
         }
         try:
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
             if output_path.is_file() and output_path.stat().st_size > 0 and not args.overwrite:
                 record["status"] = "skipped_existing"
             elif job.get("reuse_video_from"):
@@ -192,6 +199,13 @@ def run(args) -> dict:
                 if not output_path.is_file() or output_path.stat().st_size == 0:
                     raise RuntimeError(f"Wan save_video did not produce {output_path}")
                 record["status"] = "generated"
+                if torch.cuda.is_available():
+                    record["cuda_peak_allocated_bytes"] = int(
+                        torch.cuda.max_memory_allocated()
+                    )
+                    record["cuda_peak_reserved_bytes"] = int(
+                        torch.cuda.max_memory_reserved()
+                    )
             completed_outputs[job_id] = output_path
             record["output_bytes"] = output_path.stat().st_size
             record["output_sha256"] = _sha256(output_path)

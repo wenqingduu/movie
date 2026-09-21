@@ -133,6 +133,8 @@ def run(args) -> dict:
             "base_seed": args.base_seed,
             "guidance": args.guidance,
             "pulid_id_weight": args.pulid_id_weight,
+            "injection_strength": args.injection_strength,
+            "max_active_injection_steps": args.max_active_injection_steps,
             "minimum_injection_face_height_px": args.min_injection_face_height,
             "maximum_face_detection_retries": args.max_face_detection_retries,
             "harmonize_reference": True,
@@ -199,6 +201,7 @@ def run(args) -> dict:
                 "--seed", str(seed),
                 "--guidance", str(args.guidance),
                 "--pulid-id-weight", str(args.pulid_id_weight),
+                "--injection-strength", str(args.injection_strength),
                 "--facelift-result", str(facelift_result),
                 "--harmonize-reference",
                 "--reference-conditioning", "target",
@@ -207,6 +210,10 @@ def run(args) -> dict:
                 "--skip-unreliable-face",
                 "--max-face-detection-retries", str(args.max_face_detection_retries),
             ]
+            if args.max_active_injection_steps is not None:
+                command.extend(
+                    ["--max-active-injection-steps", str(args.max_active_injection_steps)]
+                )
             completed = subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=False)
             record["return_code"] = completed.returncode
             record["status"] = "generated" if completed.returncode == 0 else "failed"
@@ -277,6 +284,8 @@ def parse_args():
     parser.add_argument("--base-seed", type=int, default=719000)
     parser.add_argument("--guidance", type=float, default=4.0)
     parser.add_argument("--pulid-id-weight", type=float, default=1.0)
+    parser.add_argument("--injection-strength", type=float, default=0.4)
+    parser.add_argument("--max-active-injection-steps", type=int, default=12)
     parser.add_argument("--onnx-provider", choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--min-injection-face-height", type=int, default=24)
     parser.add_argument("--max-face-detection-retries", type=int, default=3)

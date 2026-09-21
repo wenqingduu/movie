@@ -55,15 +55,20 @@ REFERENCE_PROMPT = (
     "soft even light, plain gray background, photorealistic"
 )
 INNER_FACE_LABELS = (1, 2, 3, 4, 5, 10, 11, 12, 13)
-COLOR_CONTEXT_LABELS = INNER_FACE_LABELS + (6, 7, 8, 17)
+IDENTITY_FEATURE_LABELS = (2, 3, 4, 5, 10, 11, 12, 13)
+COLOR_CONTEXT_LABELS = INNER_FACE_LABELS
 CONSERVATIVE_MASK_POLICY = {
-    "name": "conservative_inner_face_v3_subtoken",
+    "name": "connected_identity_feature_core_v7_color_safe_subtoken",
     "center_y_fraction": 0.55,
     "radius_x_fraction": 0.43,
     "radius_y_fraction": 0.43,
     "top_fraction": 0.16,
     "bottom_fraction": 0.90,
     "erosion_fraction": 0.02,
+    "feature_hull_dilation_fraction": 0.045,
+    "feature_fallback_radius_x_fraction": 0.31,
+    "feature_fallback_radius_y_fraction": 0.34,
+    "feature_fallback_min_pixels": 24,
     "feather_radius_px": 2.0,
     "semantic_fallback_min_pixels": 64,
     "semantic_fallback_min_bbox_fraction": 0.05,
@@ -78,19 +83,21 @@ CONSERVATIVE_MASK_POLICY = {
     ],
 }
 HARMONIZATION_POLICY = {
-    "name": "target_low_frequency_log_rgb_v5_small_face_robust",
+    "name": "target_low_frequency_log_rgb_v7_nested_color_safe_core",
     "skin_label": 1,
     "skin_erosion_fraction": 0.025,
     "low_frequency_sigma_face_width_fraction": 0.09,
     "illumination_strength": 0.8,
     "gain_min": 0.1,
     "gain_max": 1.7,
-    "inward_feather_px": 16.0,
+    "inward_feather_px": 12.0,
     "color_context_labels": list(COLOR_CONTEXT_LABELS),
     "color_context_probability_threshold": 0.15,
-    "color_context_radius_face_width_fraction": 0.10,
-    "color_context_guard_face_width_fraction": 0.035,
-    "color_context_closing_face_width_fraction": 0.04,
+    "color_context_radius_face_width_fraction": 0.14,
+    "color_context_guard_face_width_fraction": 0.0,
+    "color_context_closing_face_width_fraction": 0.02,
+    "injection_safety_margin_face_width_fraction": 0.09,
+    "minimum_safe_core_retention": 0.25,
     "color_blend_covers_injection_alpha": True,
     "reference_conditioning": "target_prompt",
     "small_face_skin_support_threshold": 1500,
@@ -113,6 +120,7 @@ def _adaptive_face_injection_policy(
     start_step: int,
     total_steps: int,
     enabled: bool = True,
+    max_active_steps: int | None = None,
 ) -> dict:
     """Scale local residual injection only when the detected face is small.
 
@@ -154,6 +162,8 @@ def _adaptive_face_injection_policy(
         active_progress = 1.0
         active_fraction = 1.0
     active_steps = min(available_steps, max(1, int(round(available_steps * active_fraction))))
+    if max_active_steps is not None:
+        active_steps = min(active_steps, max(1, int(max_active_steps)))
     return {
         **SMALL_FACE_INJECTION_POLICY,
         "enabled": bool(enabled),
@@ -167,6 +177,7 @@ def _adaptive_face_injection_policy(
         "end_step_exclusive": int(start_step + active_steps),
         "active_steps": int(active_steps),
         "total_available_steps": int(available_steps),
+        "max_active_steps": int(max_active_steps) if max_active_steps is not None else None,
     }
 
 
@@ -454,7 +465,7 @@ def _color_context_application_mask(
     reference_context_probability: Image.Image,
     target_bbox: list[int],
 ) -> tuple[Image.Image, dict]:
-    """Build a generous color-only context ring around the unchanged injection core."""
+    """Build semantic color context around the smaller injection core."""
     injection_core = np.asarray(injection_core_mask.convert("L"), dtype=np.uint8) > 0
     target_probability = (
         np.asarray(target_context_probability.convert("L"), dtype=np.float32) / 255.0
@@ -467,12 +478,8 @@ def _color_context_application_mask(
         4,
         int(round(face_width * HARMONIZATION_POLICY["color_context_radius_face_width_fraction"])),
     )
-    guard_radius = max(
-        2,
-        int(round(face_width * HARMONIZATION_POLICY["color_context_guard_face_width_fraction"])),
-    )
     closing_radius = max(
-        2,
+        1,
         int(round(face_width * HARMONIZATION_POLICY["color_context_closing_face_width_fraction"])),
     )
 
@@ -491,23 +498,19 @@ def _color_context_application_mask(
         cv2.MORPH_ELLIPSE,
         (context_radius * 2 + 1, context_radius * 2 + 1),
     )
-    guard_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (guard_radius * 2 + 1, guard_radius * 2 + 1),
-    )
     context_support = cv2.dilate(
         injection_core.astype(np.uint8), context_kernel, iterations=1
     ).astype(bool)
-    guaranteed_support = cv2.dilate(
-        injection_core.astype(np.uint8), guard_kernel, iterations=1
-    ).astype(bool)
-    application = (context_support & semantic_context) | guaranteed_support
+    # The identity core is always covered. Only a semantically facial context
+    # ring may extend beyond it; hair, ears and arbitrary bbox
+    # context no longer enter the color application region.
+    application = injection_core | (context_support & semantic_context)
     application = cv2.morphologyEx(
         application.astype(np.uint8), cv2.MORPH_CLOSE, closing_kernel
     )
     metadata = {
         "context_radius_px": context_radius,
-        "guard_radius_px": guard_radius,
+        "guard_radius_px": 0,
         "closing_radius_px": closing_radius,
         "semantic_context_pixels": int(semantic_context.sum()),
         "application_pixels": int((application > 0).sum()),
@@ -564,6 +567,133 @@ def _conservative_face_core_mask(mask: Image.Image, face_bbox: list[int]) -> Ima
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     restricted = cv2.erode(restricted, kernel, iterations=1)
     return Image.fromarray(restricted, mode="L")
+
+
+def _connected_identity_feature_core_mask(
+    inner_face_mask: Image.Image,
+    feature_mask: Image.Image,
+    face_bbox: list[int],
+) -> Image.Image:
+    """Return one connected central identity region around brows, eyes, nose and mouth.
+
+    The feature parser supplies the identity-bearing geometry. Filling its
+    convex hull keeps the mask connected at coarse FLUX token resolution, while
+    intersecting with the existing conservative inner-face core prevents the
+    hull from reaching hairline, ears, outer cheeks or the chin boundary.
+    """
+
+    conservative = np.asarray(
+        _conservative_face_core_mask(inner_face_mask, face_bbox), dtype=np.uint8
+    )
+    features = np.asarray(feature_mask.convert("L"), dtype=np.uint8) > 0
+    x1, y1, x2, y2 = [float(value) for value in face_bbox]
+    face_width = max(1.0, x2 - x1)
+    face_height = max(1.0, y2 - y1)
+
+    if int(features.sum()) >= CONSERVATIVE_MASK_POLICY["feature_fallback_min_pixels"]:
+        ys, xs = np.where(features)
+        points = np.stack([xs, ys], axis=1).astype(np.int32)
+        hull = cv2.convexHull(points)
+        support = np.zeros_like(conservative, dtype=np.uint8)
+        cv2.fillConvexPoly(support, hull, 255)
+        dilation_radius = max(
+            2,
+            int(
+                round(
+                    min(face_width, face_height)
+                    * CONSERVATIVE_MASK_POLICY["feature_hull_dilation_fraction"]
+                )
+            ),
+        )
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (dilation_radius * 2 + 1, dilation_radius * 2 + 1),
+        )
+        support = cv2.dilate(support, kernel, iterations=1)
+    else:
+        # A connected, narrower fallback is safer than returning to the old
+        # full inner-face oval when feature parsing is unreliable.
+        center_x = (x1 + x2) / 2.0
+        center_y = y1 + 0.54 * face_height
+        radius_x = (
+            CONSERVATIVE_MASK_POLICY["feature_fallback_radius_x_fraction"]
+            * face_width
+        )
+        radius_y = (
+            CONSERVATIVE_MASK_POLICY["feature_fallback_radius_y_fraction"]
+            * face_height
+        )
+        yy, xx = np.ogrid[: conservative.shape[0], : conservative.shape[1]]
+        support = np.where(
+            ((xx - center_x) / radius_x) ** 2
+            + ((yy - center_y) / radius_y) ** 2
+            <= 1.0,
+            255,
+            0,
+        ).astype(np.uint8)
+
+    identity_core = np.where(
+        (conservative > 0) & (support > 0), 255, 0
+    ).astype(np.uint8)
+    return Image.fromarray(identity_core, mode="L")
+
+
+def _safe_injection_mask_from_color_application(
+    identity_core_mask: Image.Image,
+    color_application_mask: Image.Image,
+    face_bbox: list[int],
+) -> tuple[Image.Image, dict]:
+    """Erode the color application region before deriving the injection mask.
+
+    A packed FLUX token and its AE feature do not correspond to one independent
+    RGB pixel. Keeping the injected core inside the harmonized region gives
+    boundary tokens color-corrected spatial context instead of raw 3D pixels.
+    """
+
+    identity_core = np.asarray(identity_core_mask.convert("L"), dtype=np.uint8) > 0
+    color_application = (
+        np.asarray(color_application_mask.convert("L"), dtype=np.uint8) > 0
+    )
+    face_width = max(1.0, float(face_bbox[2] - face_bbox[0]))
+    requested_margin = max(
+        2,
+        int(
+            round(
+                face_width
+                * HARMONIZATION_POLICY[
+                    "injection_safety_margin_face_width_fraction"
+                ]
+            )
+        ),
+    )
+    distance = cv2.distanceTransform(
+        color_application.astype(np.uint8), cv2.DIST_L2, 5
+    )
+    core_pixels = int(identity_core.sum())
+    minimum_pixels = max(
+        16,
+        int(
+            round(
+                core_pixels * HARMONIZATION_POLICY["minimum_safe_core_retention"]
+            )
+        ),
+    )
+    applied_margin = requested_margin
+    safe = identity_core & (distance >= float(applied_margin))
+    while int(safe.sum()) < minimum_pixels and applied_margin > 2:
+        applied_margin -= 1
+        safe = identity_core & (distance >= float(applied_margin))
+    if int(safe.sum()) < 16:
+        raise RuntimeError("Color-safe identity injection core is empty")
+    metadata = {
+        "source": "identity_core_intersect_eroded_color_application",
+        "requested_margin_px": requested_margin,
+        "applied_margin_px": applied_margin,
+        "identity_core_pixels": core_pixels,
+        "safe_injection_pixels": int(safe.sum()),
+        "safe_core_retention": float(safe.sum() / max(core_pixels, 1)),
+    }
+    return Image.fromarray((safe * 255).astype(np.uint8), mode="L"), metadata
 
 
 def _srgb_to_linear(values: np.ndarray) -> np.ndarray:
@@ -1223,6 +1353,7 @@ def run(args) -> Path:
             actual_inject_start,
             args.steps,
             enabled=args.adaptive_small_face,
+            max_active_steps=args.max_active_injection_steps,
         )
         _write_json(
             step_dir / "face_detection.json",
@@ -1318,6 +1449,13 @@ def run(args) -> Path:
         target_semantic_mask = _semantic_inner_face_mask(
             preview, target_bbox, pulid.face_helper.face_parse, device
         )
+        target_identity_feature_mask = _semantic_inner_face_mask(
+            preview,
+            target_bbox,
+            pulid.face_helper.face_parse,
+            device,
+            included_labels=IDENTITY_FEATURE_LABELS,
+        )
         target_color_context_probability = (
             _semantic_probability_mask(
                 preview,
@@ -1345,6 +1483,13 @@ def run(args) -> Path:
         reference_semantic_mask = _semantic_inner_face_mask(
             aligned_reference, aligned_bbox, pulid.face_helper.face_parse, device
         )
+        reference_identity_feature_mask = _semantic_inner_face_mask(
+            aligned_reference,
+            aligned_bbox,
+            pulid.face_helper.face_parse,
+            device,
+            included_labels=IDENTITY_FEATURE_LABELS,
+        )
         reference_color_context_probability = (
             _semantic_probability_mask(
                 aligned_reference,
@@ -1370,15 +1515,77 @@ def run(args) -> Path:
         pulid.face_helper.face_parse.cpu()
         target_semantic_mask.save(step_dir / "target_semantic_inner_face_mask.png")
         reference_semantic_mask.save(step_dir / "reference_semantic_inner_face_mask.png")
-        target_mask = _conservative_face_core_mask(target_semantic_mask, target_bbox)
-        reference_mask = _conservative_face_core_mask(reference_semantic_mask, aligned_bbox)
+        target_identity_feature_mask.save(step_dir / "target_identity_feature_mask.png")
+        reference_identity_feature_mask.save(step_dir / "reference_identity_feature_mask.png")
+        target_mask = _connected_identity_feature_core_mask(
+            target_semantic_mask, target_identity_feature_mask, target_bbox
+        )
+        reference_mask = _connected_identity_feature_core_mask(
+            reference_semantic_mask, reference_identity_feature_mask, aligned_bbox
+        )
         target_mask.save(step_dir / "target_inner_face_mask.png")
         reference_mask.save(step_dir / "reference_inner_face_mask.png")
         intersection = np.minimum(np.asarray(target_mask), np.asarray(reference_mask)).astype(np.uint8)
-        final_mask = Image.fromarray(intersection, mode="L").filter(
+        identity_core_intersection = Image.fromarray(intersection, mode="L")
+        identity_core_intersection.save(step_dir / "identity_core_intersection.png")
+
+        trajectory_reference = aligned_reference
+        harmonization_metadata = None
+        color_context_metadata = None
+        injection_safety_metadata = None
+        color_application_mask = None
+        if args.harmonize_reference:
+            target_skin_mask.save(step_dir / "target_skin_mask.png")
+            reference_skin_mask.save(step_dir / "reference_skin_mask.png")
+            target_color_context_probability.save(
+                step_dir / "target_color_context_probability.png"
+            )
+            reference_color_context_probability.save(
+                step_dir / "reference_color_context_probability.png"
+            )
+            skin_intersection = Image.fromarray(
+                np.minimum(np.asarray(target_skin_mask), np.asarray(reference_skin_mask)).astype(np.uint8),
+                mode="L",
+            )
+            skin_intersection.save(step_dir / "skin_intersection_mask.png")
+            color_application_mask, color_context_metadata = _color_context_application_mask(
+                identity_core_intersection,
+                target_color_context_probability,
+                reference_color_context_probability,
+                target_bbox,
+            )
+            safe_injection_mask, injection_safety_metadata = (
+                _safe_injection_mask_from_color_application(
+                    identity_core_intersection,
+                    color_application_mask,
+                    target_bbox,
+                )
+            )
+        else:
+            safe_injection_mask = identity_core_intersection
+
+        final_mask = safe_injection_mask.filter(
             ImageFilter.GaussianBlur(radius=CONSERVATIVE_MASK_POLICY["feather_radius_px"])
         )
         final_mask.save(step_dir / "final_inner_face_mask.png")
+
+        if args.harmonize_reference:
+            trajectory_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
+                aligned_reference,
+                preview,
+                skin_intersection,
+                color_application_mask,
+                final_mask,
+                target_bbox,
+            )
+            harmonization_metadata["reference_conditioning"] = args.reference_conditioning
+            harmonization_metadata["reference_mode"] = "pure_3d"
+            harmonization_metadata["color_context"] = color_context_metadata
+            harmonization_metadata["injection_safety"] = injection_safety_metadata
+            for filename, image in harmonization_images.items():
+                image.save(step_dir / filename)
+            _write_json(step_dir / "harmonization.json", harmonization_metadata)
+
         packed_mask, latent_subtoken_mask = _token_mask(
             final_mask,
             args.height,
@@ -1413,43 +1620,6 @@ def run(args) -> Path:
         Image.fromarray(packed_mask_preview, mode="L").save(
             step_dir / "packed_token_inner_face_mask.png"
         )
-
-        trajectory_reference = aligned_reference
-        harmonization_metadata = None
-        if args.harmonize_reference:
-            target_skin_mask.save(step_dir / "target_skin_mask.png")
-            reference_skin_mask.save(step_dir / "reference_skin_mask.png")
-            target_color_context_probability.save(
-                step_dir / "target_color_context_probability.png"
-            )
-            reference_color_context_probability.save(
-                step_dir / "reference_color_context_probability.png"
-            )
-            skin_intersection = Image.fromarray(
-                np.minimum(np.asarray(target_skin_mask), np.asarray(reference_skin_mask)).astype(np.uint8),
-                mode="L",
-            )
-            skin_intersection.save(step_dir / "skin_intersection_mask.png")
-            color_application_mask, color_context_metadata = _color_context_application_mask(
-                Image.fromarray(intersection, mode="L"),
-                target_color_context_probability,
-                reference_color_context_probability,
-                target_bbox,
-            )
-            trajectory_reference, harmonization_images, harmonization_metadata = _harmonize_reference(
-                aligned_reference,
-                preview,
-                skin_intersection,
-                color_application_mask,
-                final_mask,
-                target_bbox,
-            )
-            harmonization_metadata["reference_conditioning"] = args.reference_conditioning
-            harmonization_metadata["reference_mode"] = "pure_3d"
-            harmonization_metadata["color_context"] = color_context_metadata
-            for filename, image in harmonization_images.items():
-                image.save(step_dir / filename)
-            _write_json(step_dir / "harmonization.json", harmonization_metadata)
 
         reference_x0 = _encode(ae, trajectory_reference, args.height, args.width, device).to(current.dtype)
         trajectory_started = time.perf_counter()
@@ -1713,6 +1883,15 @@ def parse_args():
         type=float,
         default=0.4,
         help="Normal-size face baseline strength; small faces scale this value automatically",
+    )
+    parser.add_argument(
+        "--max-active-injection-steps",
+        type=int,
+        default=12,
+        help=(
+            "Cap residual injection after the detected start step; the v7 color-safe "
+            "identity core defaults to 12 steps to avoid late color locking"
+        ),
     )
     parser.add_argument(
         "--adaptive-small-face",

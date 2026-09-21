@@ -87,10 +87,12 @@ def _harmonize_3d_reference_layout(
     from multishot.pulid_flux_inner_face_experiment import (
         COLOR_CONTEXT_LABELS,
         HARMONIZATION_POLICY,
+        IDENTITY_FEATURE_LABELS,
         INNER_FACE_LABELS,
         _color_context_application_mask,
-        _conservative_face_core_mask,
+        _connected_identity_feature_core_mask,
         _harmonize_reference,
+        _safe_injection_mask_from_color_application,
         _semantic_inner_face_mask,
         _semantic_probability_mask,
     )
@@ -118,6 +120,20 @@ def _harmonize_3d_reference_layout(
         parsing_model,
         device,
         included_labels=INNER_FACE_LABELS,
+    )
+    target_identity_features = _semantic_inner_face_mask(
+        target_preview,
+        target_bbox_int,
+        parsing_model,
+        device,
+        included_labels=IDENTITY_FEATURE_LABELS,
+    )
+    reference_identity_features = _semantic_inner_face_mask(
+        aligned_reference,
+        aligned_bbox,
+        parsing_model,
+        device,
+        included_labels=IDENTITY_FEATURE_LABELS,
     )
     target_color_context_probability = _semantic_probability_mask(
         target_preview,
@@ -157,19 +173,31 @@ def _harmonize_3d_reference_layout(
         np.minimum(np.asarray(target_skin), np.asarray(reference_skin)).astype(np.uint8),
         mode="L",
     )
-    target_core = _conservative_face_core_mask(target_semantic, target_bbox_int)
-    reference_core = _conservative_face_core_mask(reference_semantic, aligned_bbox)
+    target_core = _connected_identity_feature_core_mask(
+        target_semantic, target_identity_features, target_bbox_int
+    )
+    reference_core = _connected_identity_feature_core_mask(
+        reference_semantic, reference_identity_features, aligned_bbox
+    )
     injection_intersection = np.minimum(
         np.asarray(target_core), np.asarray(reference_core)
     ).astype(np.uint8)
-    final_injection_mask = Image.fromarray(injection_intersection, mode="L").filter(
-        ImageFilter.GaussianBlur(radius=2.0)
-    )
+    identity_core_intersection = Image.fromarray(injection_intersection, mode="L")
     color_application, color_context_metadata = _color_context_application_mask(
-        Image.fromarray(injection_intersection, mode="L"),
+        identity_core_intersection,
         target_color_context_probability,
         reference_color_context_probability,
         target_bbox_int,
+    )
+    safe_injection_mask, injection_safety_metadata = (
+        _safe_injection_mask_from_color_application(
+            identity_core_intersection,
+            color_application,
+            target_bbox_int,
+        )
+    )
+    final_injection_mask = safe_injection_mask.filter(
+        ImageFilter.GaussianBlur(radius=2.0)
     )
     _, harmonization_images, metadata = _harmonize_reference(
         aligned_reference,
@@ -183,6 +211,7 @@ def _harmonize_3d_reference_layout(
     metadata["estimation_mask"] = "target/reference skin-label intersection"
     metadata["application_mask"] = "soft semantic color-only context ring around injection core"
     metadata["color_context"] = color_context_metadata
+    metadata["injection_safety"] = injection_safety_metadata
     metadata["target_bbox"] = target_bbox_int
     metadata["reference_bbox"] = aligned_bbox
 
@@ -190,6 +219,8 @@ def _harmonize_3d_reference_layout(
     diagnostics = {
         "target_semantic_inner_face_mask.png": target_semantic,
         "reference_semantic_inner_face_mask.png": reference_semantic,
+        "target_identity_feature_mask.png": target_identity_features,
+        "reference_identity_feature_mask.png": reference_identity_features,
         "target_color_context_probability.png": target_color_context_probability,
         "reference_color_context_probability.png": reference_color_context_probability,
         "target_skin_mask.png": target_skin,
@@ -197,6 +228,7 @@ def _harmonize_3d_reference_layout(
         "skin_intersection_mask.png": skin_intersection,
         "target_conservative_inner_face_mask.png": target_core,
         "reference_conservative_inner_face_mask.png": reference_core,
+        "identity_core_intersection.png": identity_core_intersection,
         "final_injection_mask.png": final_injection_mask,
         **harmonization_images,
     }
