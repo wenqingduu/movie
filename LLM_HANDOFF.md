@@ -1,6 +1,6 @@
 # 3D 人脸注入实验大模型交接文档
 
-> 最后更新：2026-09-20。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `EVALUATION_PLAN.md`。当前代码只有 pure-3D 调色与 trajectory residual 注入路径。EntityBench + Wan2.2 的首个单镜头 Control/Treatment 端到端冒烟实验已经跑通，但视频级指标尚未计算，不能据此下最终结论。
+> 最后更新：2026-09-22。仓库根目录为 `/root/autodl-tmp/movie`。后续模型应先读本文，再读 `SMALL_FACE_ADAPTIVE_INJECTION_STATUS.md` 和 `EVALUATION_PLAN.md`。当前代码只有 pure-3D 调色与 trajectory residual 注入路径。EntityBench + Wan2.2 单 episode 的 12 个有序镜头视频已全部生成；N 人同时注入代码、`4:2` 自动角色匹配首帧及 Control/legacy/color-safe 三条件视频已跑通，但匹配置信度 gate 与多人逐角色视频指标尚未完成。首轮错配输出不能作为算法结果。
 
 ## 1. 当前任务状态
 
@@ -16,8 +16,8 @@
 3. 纯 3D 光照与色调匹配，不把 `pred_x0` 像素合成到参考图。
 4. target/reference BiSeNet 语义 inner-face 交集。
 5. 排除发际线、太阳穴、外脸颊、下巴边缘和耳朵的保守核心 mask。
-6. 正常脸以 `0.4`、step 30～49 为基准；小脸按 step-30 绝对像素高度自动降低 strength 并提前停止注入。
-7. 两条链路都使用 v5 soft BiSeNet 调色上下文环和小脸稳健调色 fallback；PuLID-FLUX 额外使用 VAE 子位置级 packed mask。硬注入核心没有扩大。
+6. 单步权重以 `0.4` 为基准；PuLID-FLUX v7 从 step 30 开始最多注入 12 步，小脸再按 step-30 绝对像素高度自动降低 strength 并提前停止。
+7. PuLID-FLUX 当前使用 v7 的“中央五官连通 core + 更大调色区 + 向内安全边距”；IP-Adapter 代码已同步中央五官/调色 mask 构建，但尚未用 v7 批量复跑。PuLID-FLUX 额外使用 VAE 子位置级 packed mask。
 8. BiSeNet 在极小脸上失效时，使用继续排除发际线、耳朵、外脸颊和下巴边缘的保守几何 core fallback。
 
 当前六组正面/小角度全身小脸实验及两组新增侧脸小脸实验按尺寸自动执行 10～15 个注入步骤，实际步数均与策略一致，全部 finite，无 NaN/Inf；两组近景回归仍执行 20/20 步。
@@ -25,6 +25,7 @@
 ## 2. 权威代码入口
 
 - PuLID-FLUX 主实验：`multishot/pulid_flux_inner_face_experiment.py`
+- PuLID-FLUX N 人同时注入实验：`multishot/pulid_flux_multi_face_experiment.py`
 - IP-Adapter trajectory residual 实验：`multishot/ip_adapter_pulid_style_injection_experiment.py`
 - IP-Adapter 实验公共评估工具：`multishot/ip_adapter_experiment_utils.py`
 - SDXL/IP-Adapter 后端：`multishot/diffusion_backend.py`
@@ -73,15 +74,16 @@ EntityBench 新身份已改为对每个 Gaussian 单独生成新版标定，默�
 
 ### 3.2 纯 3D 调色
 
-PuLID-FLUX 最新调色策略名：`target_low_frequency_log_rgb_v5_small_face_robust`。
+PuLID-FLUX 最新调色策略名：`target_low_frequency_log_rgb_v7_nested_color_safe_core`。
 
 ```text
 pred_x0 RGB ─┐
              ├→ 仅在双方纯皮肤交集估计低频 log-linear RGB gain
 3D reference ┘
 
-gain → 应用到完整 inner-face（含眉眼、鼻、嘴、唇）
-     → soft face parsing 构建约 19～20px 的调色上下文环
+gain → 应用到比身份核心更大的语义脸部调色区
+     → 从调色区向内留出约脸宽 9% 的 AE/latent 安全边距
+     → 安全区与中央五官核心相交后才得到注入 mask
      → 强制实际注入区域的调色覆盖不低于注入 alpha
      → 只在上下文环外缘衰减
      → 得到 harmonized_3d_face.png
@@ -93,16 +95,17 @@ gain → 应用到完整 inner-face（含眉眼、鼻、嘴、唇）
 - `pred_x0` 只提供低频光照参数。
 - 不把任何 `pred_x0` 像素混入 3D 参考图。
 - 纯皮肤 mask 只负责估光，不能同时作为调色应用 mask；否则鼻子和五官边缘会漏色。
-- 当前参数：光照强度 `0.8`、低频 sigma 为脸宽 `0.09`、gain `[0.1, 1.7]`、向内羽化 `16 px`。
-- 调色上下文可包含临近头发和耳部，只用于改善 AE 边界上下文；实际 latent 注入仍由保守核心限制。
+- 当前参数：光照强度 `0.8`、低频 sigma 为脸宽 `0.09`、gain `[0.1, 1.7]`、调色区向内羽化 `12 px`。
+- v7 调色上下文只使用 inner-face 语义，不再包含头发、耳朵或耳饰；实际 latent 注入位于调色区内部。
 
 ### 3.3 注入 mask
 
 最终注入 mask 与调色应用 mask 是两套职责不同的 mask：
 
 ```text
-target semantic inner-face → 保守椭圆核心 + 腐蚀 ─┐
-reference semantic inner-face → 保守椭圆核心 + 腐蚀 ─┴→ 交集 → 2px 羽化
+target/reference 眉眼鼻嘴语义 → 连通凸包 + 小幅扩张
+→ 与双方保守 inner-face 核心相交
+→ 与“向内腐蚀后的调色安全区”相交 → 2px 羽化
 → BOX 面积采样到 32×40 packed tokens → 0.5 token Gaussian 羽化
 ```
 
@@ -495,3 +498,341 @@ Wan2.2 已完成 manifest 中全部 16 个 job，0 失败。其中 12 条是实�
 5. 再决定是否扩展到另外两个 pilot episode；当前样本量仍不足以做普遍结论。
 
 不要恢复 self-attention、旧像素合成调色或 geometric-only mask，也不要因为 `6:1` 是负例而从评测中删除。
+
+## 13. 2026-09-21 v7 调色安全核心复跑
+
+针对旧版 `6:1` 中五官过深、周围黄绿色割裂的问题，当前 PuLID-FLUX 默认策略改为：
+
+1. 用眉毛、眼睛、鼻子、嘴和嘴唇语义构建一个连续中央身份核心，并继续与 target/reference 的保守 inner-face 相交。
+2. 先构建更大的纯 3D 调色应用区，再从该区域向内留出约脸宽 `9%` 的安全边距；注入 mask 必须位于这个安全区内。
+3. 单步权重继续固定为 `0.4`，但 v7 默认最多注入 12 步，避免最后几步把 3D 阴影和色调锁死。小脸自适应仍可进一步减少步数。
+
+新输出根目录：
+
+`outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/`
+
+8 个单角色镜头全部成功：4 个实际注入、4 个 Control 复用。4 个注入镜头首帧均为正增益：
+
+| 镜头 | Control | Treatment | 变化 |
+|---|---:|---:|---:|
+| `2:1` | 0.634599 | 0.689214 | +0.054616 |
+| `4:4` | 0.581630 | 0.660613 | +0.078983 |
+| `4:5` | 0.446398 | 0.529125 | +0.082727 |
+| `6:1` | 0.657453 | 0.695309 | +0.037856 |
+
+Wan2.2 的 16 个 job 全部完成，12 条实际生成、4 条复用、0 失败。仅统计4个实际注入镜头的视频成对宏平均：
+
+| 指标 | 旧版平均变化 | v7 平均变化 |
+|---|---:|---:|
+| first | +0.079222 | +0.065982 |
+| mean | +0.052622 | +0.056064 |
+| median | +0.058473 | +0.046387 |
+| P10 | +0.032784 | +0.052329 |
+| minimum | +0.003572 | +0.089353 |
+| detection coverage | -0.005102 | +0.005102 |
+
+v7 的平均首帧增益更保守，但 mean、P10、最低帧和检测覆盖更稳。`6:1` 的视频变化由旧版 first/P10/minimum 均为负，修正为：
+
+- first `+0.037491`
+- mean `+0.034569`
+- P10 `+0.040788`
+- minimum `+0.128121`
+- detection coverage `0.0`（两组均为 27/49）
+
+完整报告：
+
+- `outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/pulid_first_frame_report.json`
+- `outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/wan_report_single_character.json`
+- `outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/video_identity_report_single_character.json`
+- `outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/video_identity_visuals_all/`
+
+仍需注意：`4:5` 的最后可检测帧差值为负，说明快速走近/出画时的传播衰减尚未解决；v7 不能据此宣称已经普遍解决时序身份一致性。
+
+## 14. 2026-09-21 多人同时注入原型
+
+### 14.1 Git 基线与运行状态
+
+v7 调色安全核心、多人同时注入原型、EntityBench Control 准备和 Wan 显存记录代码已提交为 `bc18c45`（`Add color-safe multi-face injection evaluation`）。交接时以包含该提交的最新 `main` 为基线，并运行：
+
+```bash
+cd /root/autodl-tmp/movie
+git status --short
+git diff --check
+.venv/bin/python -m py_compile \
+  multishot/pulid_flux_inner_face_experiment.py \
+  multishot/ip_adapter_pulid_style_injection_experiment.py \
+  multishot/pulid_flux_multi_face_experiment.py \
+  pretest/prepare_entitybench_pulid_pairs.py \
+  pretest/prepare_entitybench_flux_controls.py \
+  pretest/run_wan22_i2v_manifest.py
+```
+
+当前没有残留的 PuLID/FLUX 实验进程。自动匹配重跑目录
+`outputs/entitybench_wan22_multiface_v7/episode_00053051/official_shot_4_2_autoassign/`
+已经生成完整有效首帧结果，详见 14.7。除非需要验证复现性，否则不应把它误判为中断目录再次覆盖。
+
+### 14.2 新多人实现
+
+新入口：
+
+`multishot/pulid_flux_multi_face_experiment.py`
+
+已实现的逻辑：
+
+1. 一个 prompt/seed 只生成一次共同的 step-30 target state 和 Control。
+2. target 去噪不使用任何单一人物的全局 PuLID 身份条件，`target_global_pulid_id_weight=0.0`，避免把一个身份污染到所有人脸。
+3. 对 step-30 图检测 N 张可靠脸；若多于 N 张，保留面积最大的 N 张。
+4. 每个角色分别加载身份参考、FaceLift Gaussian 和 PuLID embedding；分别使用该目标脸的 pitch/yaw/roll 连续渲染 3D 脸。
+5. 每张脸分别执行语义分割、纯 3D 调色、mask 构建、小脸 strength/结束步自适应和 same-timestep reference trajectory。
+6. 每个去噪步骤把所有角色的局部 residual **同时**合成；不采用“先注入角色 A、再覆盖角色 B”的顺序式更新。
+7. 若多个 mask 意外重叠，会把总 alpha 归一化到不超过 1；因此结果不依赖角色遍历顺序。
+8. 同时输出两个处理分支，共享同一个 Control、seed、检测框与姿态：
+   - `legacy_core`：中央身份 core 独立于调色边界选取；
+   - `color_safe_core`：中央身份 core 必须落入向内腐蚀后的调色应用区，即“基于调色 mask 得到注入 mask”的 v7 方式。
+9. 已用小 tensor 测试确认同时融合对角色遍历顺序不敏感，且重叠 alpha 能正确归一化；模块 `py_compile` 通过。
+
+当前角色分配不再依赖 prompt 中的名字顺序。代码会计算：
+
+```text
+所有角色参考 InsightFace embedding
+×
+step-30 所有检测脸 embedding
+→ cosine 矩阵
+→ 穷举一对一最大总 cosine（当前 N 很小）
+→ 角色 ↔ 检测脸映射
+```
+
+完整矩阵、总分和映射都会写入 `config.json`。该匹配仍需要加入置信度/间隔 gate；当 step-30 脸太小、模糊或多个角色外观接近时，不能无条件相信自动分配。
+
+### 14.3 可用多人镜头与资产限制
+
+run719 episode 有 4 个多人镜头：
+
+| 镜头 | 角色 | 当前资产状态 |
+|---|---|---|
+| `1:1` | Viktor、Julian | 缺 Julian 身份图和 Gaussian |
+| `3:1` | Silas、Viktor | 缺 Silas 身份图和 Gaussian |
+| `4:2` | Viktor、Roman | 两人资产均已存在，可直接测试 |
+| `4:3` | Silas、Leo | 缺 Silas、Leo 身份图和 Gaussian |
+
+现有资产根目录：
+
+`outputs/entitybench_wan22_smoke/episode_00053051/assets/`
+
+因此当前唯一可做严格真实双身份注入的官方镜头是 `4:2`。不要用 Viktor/Roman 资产冒充 Julian、Silas 或 Leo。若扩到另外三个镜头，应先按各自 `entity_descriptions` 固定生成身份参考，再分别构建和标定 Gaussian；资产生成仍不是 Control/Treatment 的实验变量。
+
+### 14.4 首轮 `4:2` 结果为什么无效
+
+首轮完整输出：
+
+`outputs/entitybench_wan22_multiface_v7/episode_00053051/official_shot_4_2/`
+
+输出包含共同 Control、`legacy_core`、`color_safe_core`、两角色的渲染/调色/mask 诊断图、`metrics.json` 和 `comparison.jpg`。原始 benchmark prompt 虽写“两人 sprint away from camera”，该 seed 实际生成了两张正面可见脸，step-30 检测框为：
+
+- 左脸约 `38×57 px`，有头发，对应 Viktor；
+- 右脸约 `52×66 px`，光头，对应 Roman，yaw 约 `-29.25°`。
+
+但首轮命令把角色按 `Roman, Viktor` 的输入顺序硬绑定到左、右脸，实际空间身份正好相反，造成交叉注入：Roman 3D 注入 Viktor 脸，Viktor 3D 注入 Roman 脸。该输出只用于证明“按 prompt/参数顺序绑定角色”不可行，所有 identity 增益均为无效数据，不能用于比较 `legacy_core` 与 `color_safe_core`。
+
+正因为这个失败，代码随后加入了 14.2 所述的一对一自动匹配。有效自动匹配重跑现已完成，结果见 14.7。
+
+### 14.5 自动匹配精确复现命令（已完成）
+
+先确保 GPU 空闲，然后在 repo 根目录运行：
+
+```bash
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export PYTHONPATH="$PWD"
+
+PROMPT="$(.venv/bin/python - <<'PY'
+import json
+p = 'benchmarks/entitybench/data/scripts/00053051-5f7e-314f-85e0-517ec18f3b08__run719__i35_j44__T120.json'
+d = json.load(open(p, encoding='utf-8'))
+print(d['scenes'][3]['video_prompts'][1])
+PY
+)"
+
+.venv/bin/python -m multishot.pulid_flux_multi_face_experiment \
+  --character "Roman=outputs/entitybench_wan22_smoke/episode_00053051/assets/characters/roman_reference.png=outputs/entitybench_wan22_smoke/episode_00053051/assets/faces_3d/roman/facelift_result.json" \
+  --character "Viktor=outputs/entitybench_wan22_smoke/episode_00053051/assets/characters/viktor_reference.png=outputs/entitybench_wan22_smoke/episode_00053051/assets/faces_3d/viktor/facelift_result.json" \
+  --output-dir outputs/entitybench_wan22_multiface_v7/episode_00053051/official_shot_4_2_autoassign \
+  --prompt "$PROMPT" \
+  --seed 719004 \
+  --max-face-detection-retries 3
+```
+
+一次运行会生成：
+
+```text
+control/final.png
+legacy_core/treatment/final.png
+color_safe_core/treatment/final.png
+comparison.jpg
+metrics.json
+config.json
+step_log.json
+legacy_core/references/<角色>/...
+color_safe_core/references/<角色>/...
+```
+
+预期耗时约 8 分钟（RTX 4090 48GB）。完成后必须先核对：
+
+1. `config.json.character_assignment.assigned_characters_left_to_right` 应为 `Viktor, Roman`；
+2. 每个角色的 bbox、姿态、Gaussian 与参考图路径正确；
+3. 两个处理分支相对于 Control 的逐角色 cosine，而不是只看多人平均；
+4. 局部放大检查五官、肤色、mask 边界和角色是否互换；
+5. `step_log.json` 中每步 finite，组合 alpha 未产生异常重叠。
+
+该自动匹配首帧实验已有效完成。若继续运行 Wan2.2，建议 manifest 包含 `control`、`legacy_core`、`color_safe_core` 三个条件，并按每个角色分别逐帧匹配和计分。现有 `pretest/evaluate_video_identity.py` 是单目标评估器，不能直接把最大脸当作两个人共同的身份分数；多人评估应做每帧检测脸与两张身份参考的一对一匹配，并报告每个角色的 first/mean/P10/min/coverage 及宏平均。
+
+### 14.6 仍需实现或验证
+
+- 自动角色匹配的置信度 gate 和歧义处理；不能在低分/小间隔时静默交换身份。
+- 多人首帧自动批处理 runner、Wan 三条件 manifest 和逐角色视频评估器。
+- 同一镜头多个 mask 接近或遮挡时的空间冲突测试。
+- 至少增加 2～3 个多人镜头/seed 后再判断 v7 是否优于 legacy；单个 `4:2` 不能形成普遍结论。
+- 当前只实现 PuLID-FLUX 多人路径；IP-Adapter 多目标路径虽在通用后端保留了 `targets[]` 接口，但尚未按同一条件做有效多人验证，不能宣称两模型均支持等价的多人实验。
+- 完成验证后再更新 `EVALUATION_PLAN.md` 的多人范围，并提交/推送代码；提交前不要删除首轮错配输出，它是角色绑定失败的诊断证据。
+
+### 14.7 `4:2` 自动角色匹配有效重跑结果
+
+已按 14.5 的命令完整重跑，进程退出码为 0。有效输出目录为：
+
+`outputs/entitybench_wan22_multiface_v7/episode_00053051/official_shot_4_2_autoassign/`
+
+首轮 `official_shot_4_2/` 仍只作为“按输入顺序绑定会交叉注入”的诊断证据，下面所有数值均来自 `official_shot_4_2_autoassign/`，不得混用首轮错配指标。
+
+自动匹配结果正确恢复了视觉空间身份：
+
+- 左脸：Viktor，bbox `[194,98,232,155]`，约 `38×57 px`，pitch/yaw/roll `[-12.782,-11.159,-4.487]°`。
+- 右脸：Roman，bbox `[340,59,392,125]`，约 `52×66 px`，pitch/yaw/roll `[-15.687,-29.249,-1.783]°`。
+- `config.json.character_assignment.assigned_characters_left_to_right` 为 `["Viktor","Roman"]`。
+- 角色参考图与 FaceLift 记录均指向各自资产，没有交叉使用。
+
+step-30 自动匹配 cosine 矩阵的行顺序为 Roman、Viktor，列顺序为左脸、右脸：
+
+```text
+[
+  [-0.031663,  0.105518],  # Roman
+  [-0.005628, -0.112998],  # Viktor
+]
+```
+
+选中映射总分为 `0.099891`，交换映射总分为 `-0.144661`，全局间隔为 `0.244552`；Roman 和 Viktor 的逐角色候选间隔分别为 `0.137181`、`0.107370`。映射方向与发型/光头外观一致，但绝对分数很低，尤其 Viktor 的选中 cosine 仍为负数，因此仍必须实现绝对置信度与歧义 gate，不能把本次成功方向外推为自动匹配已经稳健。
+
+逐角色首帧身份结果：
+
+| 角色 | Control | legacy_core | legacy Δ | color_safe_core | color-safe Δ |
+|---|---:|---:|---:|---:|---:|
+| Viktor（左） | 0.018376 | 0.024857 | +0.006481 | 0.030058 | +0.011681 |
+| Roman（右） | 0.093390 | 0.149169 | +0.055779 | 0.156139 | +0.062749 |
+| 两角色宏平均 | 0.055883 | 0.087013 | +0.031130 | 0.093098 | +0.037215 |
+
+`color_safe_core` 在两名角色上都比 Control 和 `legacy_core` 略高，但只有一个镜头，且 Viktor 绝对分数很低，不能据此宣称 v7 普遍优于 legacy。视觉放大检查未见角色交换、明显发际线/外轮廓泄漏或硬接缝；Roman 的眼神和中央五官变化较明显，Viktor 因脸更小、packed mask 很弱而变化较轻。
+
+数值日志检查：
+
+- `config.json`、`metrics.json`、`step_log.json` 中所有浮点值 finite。
+- step 30～40 两名角色同时注入，step 41 仅 Roman 继续，step 42～49 均停止，符合小脸自适应与 12 步上限。
+- 两个分支每步 `raw_combined_alpha_max` 最大均为 `0.16015625`，未发生异常 mask 重叠或 alpha 超限。
+- `color_safe_core` 的 Viktor/Roman 安全核心保留率分别为 `1.0`、`0.993758`。
+
+关键结构化文件：
+
+- `official_shot_4_2_autoassign/config.json`
+- `official_shot_4_2_autoassign/metrics.json`
+- `official_shot_4_2_autoassign/step_log.json`
+- `official_shot_4_2_autoassign/comparison.jpg`
+
+Control、legacy、color-safe 三个首帧的 Wan2.2 视频现已生成，详见第 15 节。下一步仍是补角色匹配 gate，并按每帧两张参考图与检测脸做一对一逐角色视频评估；不能复用单目标“最大脸”评估逻辑。
+
+## 15. 2026-09-22 完整有序 episode 视频与 Wan 显存实测
+
+### 15.1 完整 episode 状态
+
+权威输出根目录：
+
+`outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/`
+
+12 个有序 shot 的主 Control/Treatment 已全部存在，共 24 条主视频；`4:2` 另保留 1 条 `legacy_core` 消融视频。所有单 shot 视频均为 `1280×704`、49 帧、24 fps、50 steps，已用 ffprobe 逐条读取验证。
+
+主 Treatment 定义：
+
+- 实际应用插件：`2:1`、`4:2`、`4:4`、`4:5`、`6:1`。
+- Treatment 复用 Control：`1:1`、`3:1`、`4:1`、`4:3`、`4:6`、`5:1`、`5:2`。
+- `4:2` 主 Treatment 使用 `color_safe_core`；`legacy_core` 只作为额外消融。
+- `1:1`、`3:1`、`4:3` 缺少完整多角色身份资产，因此只生成零全局身份权重的多人 Control 并复用，不冒充插件成功。
+- `4:2` 使用 14.7 的有效自动角色匹配首帧，Control 保持 `target_global_pulid_id_weight=0.0`，legacy/color-safe 是两个真实多人局部注入条件。
+
+7 个 Control 复用镜头不是随机关闭插件：
+
+- `4:1`：step-30 检测脸高仅 `13 px`，低于当前 `24 px` 可靠注入阈值。
+- `4:6`：后脑/背影视角；连续尝试到去噪 step 32 仍没有可靠人脸。
+- `5:1`：高机位快速坠落的全身人物；没有可靠人脸。
+- `5:2`：窗内远距离剪影；没有可靠人脸。
+- `1:1`：缺 Julian 身份参考和 Gaussian。
+- `3:1`：缺 Silas 身份参考和 Gaussian。
+- `4:3`：缺 Silas、Leo 身份参考和 Gaussian。
+
+前三类检测失败保护用于避免把错误身份 residual 注入背景或错误部位；多人资产缺失则用于避免拿 Viktor/Roman 冒充其他角色。它们不表示算法原则上不能处理这些镜头，补齐资产并通过检测/角色映射 gate 后可以再启用。
+
+完整结构化入口：
+
+- `wan_manifest_full_episode.json`：12-shot 主对照加 `4:2 legacy`，共 25 个 job。
+- `wan_report_full_episode_summary.json`：逐文件 SHA256、ffprobe、复用关系、插件应用状态和显存观察。
+- `wan_report_remaining_worker_a_retry.json`：`1:1`、`4:2 Control/legacy` 的最终权威报告。
+- `wan_report_remaining_worker_b.json`：`3:1`、`4:3`、`4:2 color-safe` 的权威报告。
+- `wan_report_remaining_worker_a.json`：双进程切换时 OOM 的诊断报告，不是最终完成状态。
+
+按官方顺序无重编码拼接出的完整视频：
+
+- `episode_sequences/episode_control.mp4`
+- `episode_sequences/episode_treatment_color_safe.mp4`
+- `episode_sequences/episode_treatment_4_2_legacy.mp4`
+
+三条拼接序列均为 588 帧、约 24.50 秒、1280×704。concat 后容器的平均帧率表示为近似 24 fps 的有理数；各原始 shot 文件仍是严格 `24/1`。
+
+### 15.2 `4:2` 三条件 Wan 视频
+
+三条视频使用相同官方 prompt、seed `719004` 和 Wan 参数，只改变首帧：
+
+- Control：`videos/shot_4_2/control.mp4`
+- legacy：`videos/shot_4_2/legacy_core.mp4`
+- color-safe：`videos/shot_4_2/treatment.mp4`
+
+首帧 SHA256 分别对应 14.7 已验证的：
+
+- Control：`9eba30a4c9255b7cab2177ee1eab8c71e4437b07c51f316d40fe707ed602accb`
+- legacy：`1b7c345763d0eae1a8c058e2cd4d794d090e88d518bf60bd27aa9ec0e3b909e4`
+- color-safe：`f1eb0940520f6392189fd61be8b688abf2a9f3bc1b933a18e7c53e37b236bcb7`
+
+尚未计算多人视频逐角色身份指标，不能用单人评估器把最大脸当作两个人的共同分数。
+
+### 15.3 Wan2.2-5B 显存和并发结论
+
+`pretest/run_wan22_i2v_manifest.py` 已增加每个实际生成 job 的 CUDA peak allocated/reserved 记录。本轮配置仍为 `offload_model=True`、`convert_model_dtype=True`、`t5_cpu=True`。
+
+实测：
+
+- 模型刚加载后约 allocated `2.82 GB`、reserved `2.87 GB`。
+- 单任务最大 allocated `23,832,273,920 bytes`，约 `22.19 GiB`。
+- 连续任务最大 reserved `34,345,058,304 bytes`，约 `31.99 GiB`。
+- 两进程第一轮稳定采样时，nvidia-smi 合计约 `33,486 MiB`，GPU 100%。
+- 两进程都进入后续任务时出现阶段性峰值：一个进程约占 `32.42 GiB`，另一个约 `14.85 GiB`，最终因只剩约 86 MiB 而 OOM。
+- OOM 只影响尚未开始的 `4:2 legacy_core`；已有视频保留，随后单进程断点续跑成功。
+
+结论：Wan2.2-5B 在 offload 下“模型加载常驻显存低”，但完整生成峰值并不低。单张 48GB GPU 上两个进程可以短暂并行，却不适合可靠的连续批处理；默认应保持一个 Wan 进程、一次加载模型、manifest 内串行生成。真正并行应使用多 GPU，或把每个进程限制为单个 job 并严密监控峰值。
+
+### 15.4 本轮新增代码与未完成项
+
+- 新增 `pretest/prepare_entitybench_flux_controls.py`：为本轮缺少完整身份资产或可靠角色映射的指定多人回退镜头，生成与多人原型一致的零全局 PuLID 权重 Control，并生成 Control 复用 manifest。该回退不代表多人注入算法本身不受支持。
+- 更新 `pretest/run_wan22_i2v_manifest.py`：记录模型加载后显存和每个生成 job 的 CUDA 峰值。
+- 上述代码已提交为 `bc18c45`；不要恢复旧 self-attention、旧像素合成调色或 geometric-only mask。
+
+后续优先级：
+
+1. 实现多人视频逐帧“一对一身份匹配”评估器，评估 `4:2` Control/legacy/color-safe 的 Viktor 与 Roman。
+2. 人工检查三条完整 episode 和 `4:2` 三条件的运动、闪烁、身份交换及首帧伪影传播。
+3. 实现自动角色匹配的绝对分数、候选间隔和全局间隔 gate。
+4. 再决定是否补齐 Julian、Silas、Leo 资产并扩展其他多人镜头；不要因为本轮 Control 复用而宣称这些镜头已经验证多人插件。
