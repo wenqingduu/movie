@@ -242,7 +242,7 @@ def _harmonize_3d_reference_layout(
     )
 
 
-def run(args) -> dict:
+def run(args, *, backend=None, app=None) -> dict:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     reference_path = args.reference.resolve()
@@ -260,11 +260,15 @@ def run(args) -> dict:
     os.environ["MULTISHOT_DIFFUSION_SEED"] = str(args.seed)
     os.environ["MULTISHOT_DIFFUSION_STEPS"] = str(args.steps)
     os.environ["MULTISHOT_FINAL_STEP"] = str(args.steps)
+    os.environ["MULTISHOT_IMAGE_WIDTH"] = str(args.width)
+    os.environ["MULTISHOT_IMAGE_HEIGHT"] = str(args.height)
     os.environ["MULTISHOT_IP_ADAPTER_IMAGE"] = str(reference_path)
     os.environ["MULTISHOT_IP_ADAPTER_SCALE"] = str(args.ip_adapter_scale)
     os.environ["MULTISHOT_REFERENCE_LAYOUT_MODE"] = "match_target_scale"
     os.environ["MULTISHOT_REFERENCE_FACE_SCALE_RATIO"] = str(args.reference_scale)
     os.environ["MULTISHOT_REFERENCE_CROP_SIZE"] = "1024"
+    os.environ["MULTISHOT_REFERENCE_CANVAS_WIDTH"] = str(args.width)
+    os.environ["MULTISHOT_REFERENCE_CANVAS_HEIGHT"] = str(args.height)
     os.environ["MULTISHOT_TRAJECTORY_INJECTION_SCALE"] = "1.0"
 
     input_dir = output / "input"
@@ -275,7 +279,7 @@ def run(args) -> dict:
     if not gaussian_model:
         shutil.copy2(continuous_render, copied_render)
 
-    backend = OpenSourceDiffusionBackend("sdxl-base-1.0-ip-adapter")
+    backend = backend or OpenSourceDiffusionBackend("sdxl-base-1.0-ip-adapter")
     started = time.time()
     runtime = backend.prepare_generation("ip_adapter_pulid_style_comparison", args.prompt, args.steps)
     conditioning = {"prompt": args.prompt, "reference_portrait": str(reference_path)}
@@ -290,20 +294,149 @@ def run(args) -> dict:
         injection_plan={"lambda": 0.0, "targets": []},
         conditioning=conditioning,
     )
-    shared_path = output / "shared" / f"step_{args.fork_step:02d}_x0.png"
-    backend.estimate_x0_preview(shared_state, str(shared_path))
+    app = app or _face_app()
+    actual_fork_step = args.fork_step
+    detection_failures = []
+    detected_face = None
+    shared_path = None
+    while True:
+        shared_path = output / "shared" / f"step_{actual_fork_step:02d}_x0.png"
+        backend.estimate_x0_preview(shared_state, str(shared_path))
+        detected_face = _largest_face(app, shared_path)
+        if detected_face is not None:
+            break
+        detection_failures.append({
+            "step": actual_fork_step,
+            "reason": "InsightFace did not detect a face",
+        })
+        retry_count = actual_fork_step - args.fork_step
+        if retry_count >= args.max_face_detection_retries or actual_fork_step >= args.steps - 1:
+            break
+        os.environ["MULTISHOT_INJECTION_MODE"] = "off"
+        shared_state = backend.denoise_window(
+            runtime,
+            actual_fork_step,
+            actual_fork_step + 1,
+            previous_denoise_state=shared_state,
+            injection_plan={"lambda": 0.0, "targets": []},
+            conditioning=conditioning,
+        )
+        actual_fork_step += 1
 
-    app = _face_app()
     target_image = Image.open(shared_path)
-    target_face = _face_record(_largest_face(app, shared_path), *target_image.size)
+    target_face = _face_record(detected_face, *target_image.size)
+
+    def finish_with_control_reuse(reason: str) -> dict:
+        os.environ["MULTISHOT_INJECTION_MODE"] = "off"
+        os.environ["MULTISHOT_DYNAMIC_IP_ADAPTER_REFERENCE"] = "0"
+        baseline_state = backend.denoise_window(
+            runtime,
+            actual_fork_step,
+            args.steps,
+            previous_denoise_state=shared_state,
+            injection_plan={"lambda": 0.0, "targets": []},
+            conditioning=conditioning,
+        )
+        branches_dir = output / "branches"
+        baseline_path = branches_dir / "ip_adapter_baseline.png"
+        treatment_path = branches_dir / "ip_adapter_plus_pulid_style_residual.png"
+        backend.decode_final_image(baseline_state, str(baseline_path))
+        treatment_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(baseline_path, treatment_path)
+        compact = _compact_state(baseline_state)
+        _write_json(output / "logs" / "ip_adapter_baseline.json", compact)
+        _write_json(
+            output / "logs" / "ip_adapter_plus_pulid_style_residual.json",
+            {**compact, "reused_control": True, "skip_reason": reason},
+        )
+
+        reference_embedding = _embedding(_largest_face(app, copied_reference))
+        output_face = _largest_face(app, baseline_path)
+        output_embedding = _embedding(output_face)
+        output_image = Image.open(baseline_path)
+        output_record = _face_record(output_face, *output_image.size)
+        identity_cosine = _cosine(reference_embedding, output_embedding)
+        metrics = {
+            name: {
+                "reference_portrait_cosine": identity_cosine,
+                "continuous_3d_render_cosine": None,
+                "face_detected": output_face is not None,
+                "final_face": output_record,
+                **_pixel_delta(baseline_path, path, target_face["face_bbox"]),
+            }
+            for name, path in {
+                "ip_adapter_baseline": baseline_path,
+                "ip_adapter_plus_pulid_style_residual": treatment_path,
+            }.items()
+        }
+        contact_sheet = output / "comparison.jpg"
+        _make_contact_sheet(
+            [
+                ("original portrait / IP-Adapter", copied_reference),
+                (f"shared x0 at step {actual_fork_step}", shared_path),
+                ("IP-Adapter baseline", baseline_path),
+                ("Treatment reused Control", treatment_path),
+            ],
+            contact_sheet,
+        )
+        result = {
+            "status": "completed_control_reuse",
+            "plugin_skipped": True,
+            "skip_reason": reason,
+            "model": "sdxl-base-1.0-ip-adapter",
+            "prompt": args.prompt,
+            "seed": args.seed,
+            "width": args.width,
+            "height": args.height,
+            "total_steps": args.steps,
+            "requested_fork_step": args.fork_step,
+            "fork_step": actual_fork_step,
+            "ip_adapter_scale": args.ip_adapter_scale,
+            "injection_lambda": args.injection_lambda,
+            "max_active_injection_steps": args.max_active_injection_steps,
+            "minimum_injection_face_height_px": args.min_injection_face_height,
+            "detection_failures": detection_failures,
+            "target_face": target_face,
+            "metrics": metrics,
+            "paths": {
+                "comparison": str(contact_sheet),
+                "reference_portrait": str(copied_reference),
+                "shared_step_x0": str(shared_path),
+                "branches": {
+                    "ip_adapter_baseline": str(baseline_path),
+                    "ip_adapter_plus_pulid_style_residual": str(treatment_path),
+                },
+            },
+            "branch_definition": {
+                "ip_adapter_baseline": "original portrait IP-Adapter only",
+                "ip_adapter_plus_pulid_style_residual": "Control reused because the reliability gate failed",
+            },
+            "elapsed_seconds": round(time.time() - started, 3),
+        }
+        _write_json(output / "result.json", result)
+        return result
+
+    if detected_face is None and args.skip_unreliable_face:
+        return finish_with_control_reuse(
+            f"no reliable face detected in {len(detection_failures)} attempts "
+            f"through denoising step {actual_fork_step}"
+        )
+    target_face_height = target_face["face_bbox"][3] - target_face["face_bbox"][1]
+    if target_face_height < args.min_injection_face_height and args.skip_unreliable_face:
+        return finish_with_control_reuse(
+            f"detected face height {target_face_height:.2f}px is below the "
+            f"{args.min_injection_face_height}px injection threshold"
+        )
+
     from multishot.pulid_flux_inner_face_experiment import _adaptive_face_injection_policy
 
     injection_adaptation = _adaptive_face_injection_policy(
         target_face["face_bbox"],
         args.injection_lambda,
-        args.fork_step,
+        actual_fork_step,
         args.steps,
         enabled=args.adaptive_small_face,
+        max_active_steps=args.max_active_injection_steps,
     )
     target_yaw = float(target_face["pose"]["yaw"])
     yaw_gate = {
@@ -312,10 +445,10 @@ def run(args) -> dict:
         "detected_yaw": target_yaw,
         "accepted": args.min_abs_yaw <= abs(target_yaw) <= args.max_abs_yaw,
     }
-    _write_json(output / "shared" / f"step_{args.fork_step:02d}_yaw_gate.json", yaw_gate)
+    _write_json(output / "shared" / f"step_{actual_fork_step:02d}_yaw_gate.json", yaw_gate)
     if not yaw_gate["accepted"]:
         raise RuntimeError(
-            f"Step-{args.fork_step} absolute yaw {abs(target_yaw):.4f} is outside "
+            f"Step-{actual_fork_step} absolute yaw {abs(target_yaw):.4f} is outside "
             f"the requested [{args.min_abs_yaw:.4f}, {args.max_abs_yaw:.4f}] range"
         )
     if gaussian_model:
@@ -333,19 +466,30 @@ def run(args) -> dict:
     target_mask = _write_conservative_face_mask(
         shared_path,
         target_face["face_bbox"],
-        output / "shared" / f"step_{args.fork_step:02d}_conservative_face_mask.png",
+        output / "shared" / f"step_{actual_fork_step:02d}_conservative_face_mask.png",
     )
     reference_layout = _prepare_reference_face_crop(str(copied_render), target_face["face_bbox"])
     unharmonized_reference_image = reference_layout["reference_image"]
     harmonization_metadata = None
     if args.harmonize_reference:
-        harmonized_3d_reference, target_mask, harmonization_metadata = _harmonize_3d_reference_layout(
-            shared_path,
-            Path(unharmonized_reference_image),
-            target_face["face_bbox"],
-            app,
-            input_dir / "harmonization",
-        )
+        try:
+            harmonized_3d_reference, target_mask, harmonization_metadata = (
+                _harmonize_3d_reference_layout(
+                    shared_path,
+                    Path(unharmonized_reference_image),
+                    target_face["face_bbox"],
+                    app,
+                    input_dir / "harmonization",
+                )
+            )
+        except RuntimeError as exc:
+            if args.skip_unreliable_face and str(exc) == (
+                "Color-safe identity injection core is empty"
+            ):
+                return finish_with_control_reuse(
+                    "v7 color-safe identity core is empty after semantic parsing"
+                )
+            raise
         reference_layout["unharmonized_reference_image"] = unharmonized_reference_image
         reference_layout["reference_image"] = str(harmonized_3d_reference)
     target = {
@@ -378,7 +522,7 @@ def run(args) -> dict:
         os.environ["MULTISHOT_DYNAMIC_IP_ADAPTER_REFERENCE"] = "0"
         branch_state = backend.denoise_window(
             runtime,
-            args.fork_step,
+            actual_fork_step,
             args.steps,
             previous_denoise_state=shared_state,
             injection_plan=branch_plan,
@@ -419,7 +563,7 @@ def run(args) -> dict:
                 else "aligned 3D reference",
                 Path(reference_layout["reference_image"]),
             ),
-            (f"shared x0 at step {args.fork_step}", shared_path),
+            (f"shared x0 at step {actual_fork_step}", shared_path),
             ("IP-Adapter baseline", branch_outputs["ip_adapter_baseline"]),
             ("IP-Adapter + PuLID-style residual", branch_outputs["ip_adapter_plus_pulid_style_residual"]),
         ],
@@ -431,13 +575,21 @@ def run(args) -> dict:
         "model": "sdxl-base-1.0-ip-adapter",
         "prompt": args.prompt,
         "seed": args.seed,
+        "width": args.width,
+        "height": args.height,
         "total_steps": args.steps,
-        "fork_step": args.fork_step,
+        "requested_fork_step": args.fork_step,
+        "fork_step": actual_fork_step,
         "ip_adapter_scale": args.ip_adapter_scale,
         "injection_lambda": args.injection_lambda,
         "effective_trajectory_residual_strength": injection_adaptation["effective_strength"],
         "adaptive_small_face": args.adaptive_small_face,
         "small_face_injection_policy": injection_adaptation,
+        "max_active_injection_steps": args.max_active_injection_steps,
+        "minimum_injection_face_height_px": args.min_injection_face_height,
+        "detection_failures": detection_failures,
+        "plugin_skipped": False,
+        "skip_reason": None,
         "dynamic_3d_ip_adapter_enabled": False,
         "harmonize_reference": args.harmonize_reference,
         "harmonization_policy": harmonization_metadata,
@@ -452,7 +604,7 @@ def run(args) -> dict:
         "reference_layout": reference_layout,
         "mask_policy": {
             "name": (
-                "conservative_semantic_inner_face_intersection"
+                "connected_identity_feature_core_v7_color_safe"
                 if args.harmonize_reference
                 else "conservative_geometric_face_core"
             ),
@@ -517,10 +669,21 @@ def parse_args():
     parser.add_argument("--gaussian-model", type=Path)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--width", type=int, default=1024)
+    parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--fork-step", type=int, default=30)
     parser.add_argument("--ip-adapter-scale", type=float, default=0.6)
     parser.add_argument("--injection-lambda", type=float, default=0.4)
+    parser.add_argument("--max-active-injection-steps", type=int, default=12)
+    parser.add_argument("--min-injection-face-height", type=int, default=24)
+    parser.add_argument("--max-face-detection-retries", type=int, default=3)
+    parser.add_argument(
+        "--skip-unreliable-face",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Reuse Control when no reliable face or only a sub-threshold face is detected",
+    )
     parser.add_argument(
         "--adaptive-small-face",
         action=argparse.BooleanOptionalAction,

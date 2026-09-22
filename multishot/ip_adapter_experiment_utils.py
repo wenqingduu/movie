@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import cv2
@@ -26,12 +27,22 @@ def _write_json(path: Path, value) -> None:
 def _face_app():
     from insightface.app import FaceAnalysis
 
+    providers = [
+        item.strip()
+        for item in os.getenv(
+            "MULTISHOT_INSIGHTFACE_PROVIDERS", "CPUExecutionProvider"
+        ).split(",")
+        if item.strip()
+    ]
     app = FaceAnalysis(
         name="antelopev2",
         root=str(PROJECT_ROOT / "third_party" / "PuLID"),
-        providers=["CPUExecutionProvider"],
+        providers=providers,
     )
-    app.prepare(ctx_id=-1, det_size=(640, 640))
+    app.prepare(
+        ctx_id=0 if providers and providers[0] == "CUDAExecutionProvider" else -1,
+        det_size=(640, 640),
+    )
     return app
 
 

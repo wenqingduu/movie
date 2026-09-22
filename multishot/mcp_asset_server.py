@@ -918,24 +918,32 @@ def _detect_reference_face_bbox(source_path: Path):
     return image, face_bbox, detection_source
 
 
-def _save_reference_layout_mask(mask_path: Path, output_size: int, face_bbox: list[int]):
+def _save_reference_layout_mask(
+    mask_path: Path, output_size: int | tuple[int, int], face_bbox: list[int]
+):
     """保存 reference layout 上的人脸 mask。"""
 
     from PIL import Image, ImageDraw, ImageFilter
 
+    if isinstance(output_size, tuple):
+        output_width, output_height = output_size
+    else:
+        output_width = output_height = output_size
     fx1, fy1, fx2, fy2 = face_bbox
     pad_face_x = int((fx2 - fx1) * float(os.getenv("MULTISHOT_FACE_MASK_PAD_X", "0.20")))
     pad_face_y = int((fy2 - fy1) * float(os.getenv("MULTISHOT_FACE_MASK_PAD_Y", "0.30")))
     mask_bbox = [
         max(0, fx1 - pad_face_x),
         max(0, fy1 - pad_face_y),
-        min(output_size, fx2 + pad_face_x),
-        min(output_size, fy2 + pad_face_y),
+        min(output_width, fx2 + pad_face_x),
+        min(output_height, fy2 + pad_face_y),
     ]
-    mask = Image.new("L", (output_size, output_size), 0)
+    mask = Image.new("L", (output_width, output_height), 0)
     draw = ImageDraw.Draw(mask)
     draw.ellipse(mask_bbox, fill=255)
-    mask.filter(ImageFilter.GaussianBlur(radius=max(3, output_size // 120))).save(mask_path)
+    mask.filter(
+        ImageFilter.GaussianBlur(radius=max(3, max(output_width, output_height) // 120))
+    ).save(mask_path)
     return mask_bbox
 
 
@@ -957,6 +965,8 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
     mode = os.getenv("MULTISHOT_REFERENCE_LAYOUT_MODE", "match_target_scale")
     ratio = float(os.getenv("MULTISHOT_REFERENCE_FACE_SCALE_RATIO", "1.0"))
     output_size = int(os.getenv("MULTISHOT_REFERENCE_CROP_SIZE", "1024"))
+    output_width = int(os.getenv("MULTISHOT_REFERENCE_CANVAS_WIDTH", str(output_size)))
+    output_height = int(os.getenv("MULTISHOT_REFERENCE_CANVAS_HEIGHT", str(output_size)))
 
     if mode == "match_target_scale" and target_face_bbox:
         target = [float(v) for v in target_face_bbox]
@@ -964,7 +974,11 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
         target_h = max(1.0, target[3] - target[1])
         target_cx = (target[0] + target[2]) / 2.0
         target_cy = (target[1] + target[3]) / 2.0
-        tag = f"reference_match_{ratio:.2f}_{int(round(target_w))}x{int(round(target_h))}_{int(round(target_cx))}_{int(round(target_cy))}".replace(".", "p")
+        tag = (
+            f"reference_match_{ratio:.2f}_{output_width}x{output_height}_"
+            f"{int(round(target_w))}x{int(round(target_h))}_"
+            f"{int(round(target_cx))}_{int(round(target_cy))}"
+        ).replace(".", "p")
         layout_path = source_path.with_suffix(f".{tag}.png")
         mask_path = source_path.with_suffix(f".{tag}.mask.png")
         meta_path = source_path.with_suffix(f".{tag}.meta.json")
@@ -1005,8 +1019,8 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
         ]
         source_crop = image.crop(crop_bbox)
 
-        desired_face_w = max(4.0, min(output_size * 0.85, target_w * ratio))
-        desired_face_h = max(4.0, min(output_size * 0.85, target_h * ratio))
+        desired_face_w = max(4.0, min(output_width * 0.85, target_w * ratio))
+        desired_face_h = max(4.0, min(output_height * 0.85, target_h * ratio))
         scale = min(desired_face_w / source_face_w, desired_face_h / source_face_h)
         resized_w = max(1, int(round(source_crop.width * scale)))
         resized_h = max(1, int(round(source_crop.height * scale)))
@@ -1024,10 +1038,10 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
         # 放在 target face 的中心位置，让 reference mask token 数与 target mask 接近。
         paste_x = int(round(target_cx - face_cx_in_resized))
         paste_y = int(round(target_cy - face_cy_in_resized))
-        paste_x = max(-resized_w + 1, min(output_size - 1, paste_x))
-        paste_y = max(-resized_h + 1, min(output_size - 1, paste_y))
+        paste_x = max(-resized_w + 1, min(output_width - 1, paste_x))
+        paste_y = max(-resized_h + 1, min(output_height - 1, paste_y))
 
-        canvas = Image.new("RGB", (output_size, output_size), (127, 127, 127))
+        canvas = Image.new("RGB", (output_width, output_height), (127, 127, 127))
         canvas.paste(source_resized, (paste_x, paste_y))
         canvas.save(layout_path)
 
@@ -1038,12 +1052,14 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
             int(round(face_bbox_in_crop[3] + paste_y)),
         ]
         face_bbox_on_layout = [
-            max(0, min(output_size, face_bbox_on_layout[0])),
-            max(0, min(output_size, face_bbox_on_layout[1])),
-            max(0, min(output_size, face_bbox_on_layout[2])),
-            max(0, min(output_size, face_bbox_on_layout[3])),
+            max(0, min(output_width, face_bbox_on_layout[0])),
+            max(0, min(output_height, face_bbox_on_layout[1])),
+            max(0, min(output_width, face_bbox_on_layout[2])),
+            max(0, min(output_height, face_bbox_on_layout[3])),
         ]
-        mask_bbox = _save_reference_layout_mask(mask_path, output_size, face_bbox_on_layout)
+        mask_bbox = _save_reference_layout_mask(
+            mask_path, (output_width, output_height), face_bbox_on_layout
+        )
 
         meta = {
             "source_image": str(source_path),
@@ -1052,7 +1068,7 @@ def _prepare_reference_face_crop(reference_image_path: str, target_face_bbox: li
             "layout_mode": mode,
             "reference_face_scale_ratio": ratio,
             "source_size": [width, height],
-            "output_size": [output_size, output_size],
+            "output_size": [output_width, output_height],
             "target_face_bbox": [round(v, 2) for v in target],
             "target_face_size": [round(target_w, 2), round(target_h, 2)],
             "detected_face_bbox_on_source": [round(v, 2) for v in face_bbox],
