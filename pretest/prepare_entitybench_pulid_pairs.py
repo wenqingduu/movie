@@ -149,6 +149,26 @@ def run(args) -> dict:
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
     env["PYTHONPATH"] = str(PROJECT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
 
+    # Loading FLUX, the text encoders and PuLID once per shot dominates runtime.
+    # In batch mode, keep the model objects alive and let the experiment move
+    # individual components between CPU/GPU exactly as it already does. The
+    # subprocess path remains available as a conservative fallback.
+    shared_single = None
+    original_loader = None
+    shared_models = None
+    if args.shared_model_process:
+        from multishot import pulid_flux_inner_face_experiment as shared_single
+
+        original_loader = shared_single._load_models
+
+        def _cached_loader(pair_args, device):
+            nonlocal shared_models
+            if shared_models is None:
+                shared_models = original_loader(pair_args, device)
+            return shared_models
+
+        shared_single._load_models = _cached_loader
+
     for shot in _ordered_shots(episode):
         if selected_keys is not None and shot["shot_key"] not in selected_keys:
             continue
@@ -214,9 +234,32 @@ def run(args) -> dict:
                 command.extend(
                     ["--max-active-injection-steps", str(args.max_active_injection_steps)]
                 )
-            completed = subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=False)
-            record["return_code"] = completed.returncode
-            record["status"] = "generated" if completed.returncode == 0 else "failed"
+            if args.shared_model_process:
+                old_argv = sys.argv
+                try:
+                    sys.argv = ["pulid_flux_inner_face_experiment", *command[3:]]
+                    pair_args = shared_single.parse_args()
+                    shared_single.run(pair_args)
+                except Exception as exc:
+                    record["return_code"] = 1
+                    record["error"] = f"{type(exc).__name__}: {exc}"
+                    record["status"] = "failed"
+                    if not args.continue_on_error:
+                        raise
+                else:
+                    record["return_code"] = 0
+                    record["status"] = "generated"
+                finally:
+                    sys.argv = old_argv
+                    import gc
+                    import torch
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+            else:
+                completed = subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=False)
+                record["return_code"] = completed.returncode
+                record["status"] = "generated" if completed.returncode == 0 else "failed"
         record["elapsed_seconds"] = round(time.perf_counter() - started, 3)
         if record["status"] in {"generated", "skipped_existing"}:
             if not control.is_file() or not treatment.is_file():
@@ -269,6 +312,8 @@ def run(args) -> dict:
         "identity_references": identity_references,
         "jobs": wan_jobs,
     })
+    if shared_single is not None and original_loader is not None:
+        shared_single._load_models = original_loader
     return report
 
 
@@ -291,6 +336,12 @@ def parse_args():
     parser.add_argument("--max-face-detection-retries", type=int, default=3)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument(
+        "--shared-model-process",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reuse one FLUX/PuLID model load across all selected shots.",
+    )
     return parser.parse_args()
 
 

@@ -138,6 +138,7 @@ def _parse_pose(value: str) -> dict:
 
 
 def run(args) -> Path:
+    torch.set_num_threads(args.torch_threads)
     model_path = args.model.resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -293,6 +294,7 @@ def parse_args():
     )
     parser.add_argument("--calibration-output", type=Path)
     parser.add_argument("--image-size", type=int, default=1024)
+    parser.add_argument("--torch-threads", type=int, default=4)
     parser.add_argument("--reuse-samples", action="store_true")
     parser.add_argument(
         "--pitch-values", type=float, nargs="+", default=[-25.0, -10.0, 5.0, 20.0]

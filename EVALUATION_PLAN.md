@@ -183,7 +183,9 @@ StoryMem MI2V 和其他带历史记忆的方法放到第二阶段。首轮不同
 
 ## 10. 当前范围
 
-初步实验先处理单人物。多人同框、多角色分别注入、遮挡及角色对应关系作为后续扩展，不进入第一阶段主实验。
+当前 PuLID-FLUX 与 SDXL IP-Adapter 两条路线只评单人物。已有全角色资产继续保留，但
+多人同框镜头不执行身份注入，也不进入当前 Control/Treatment 聚合。后续多人实验应使用
+原生支持多参考主体的图像模型另建实验，不把旧多人映射试验混入本轮结论。
 
 当前优先评测的是**身份注入插件本身**，而不是完整智能体。EntityBench 在本阶段作为多镜头样本和评价框架使用，不要求复现从一句话开始的剧本拆分过程。
 
@@ -195,10 +197,9 @@ StoryMem MI2V 和其他带历史记忆的方法放到第二阶段。首轮不同
 
 ```text
 完整有序 episode
-├── Control：所有镜头均不注入 → Wan2.2
-└── Treatment
-    ├── 单角色镜头：身份插件注入 → Wan2.2
-    └── 多角色/无角色镜头：不注入，直接复用 Control 视频
+└── 单角色镜头子集
+    ├── Control：不注入 → Wan2.2
+    └── Treatment：通过可靠性 gate 后执行单人 v7 → Wan2.2
 ```
 
 Wan2.2 在首轮对每个镜头独立运行，不读取上一镜头结果。episode 顺序用于组织输出、计算跨镜头身份变化和保持 benchmark 的正式时序定义，而不是作为视频模型的生成记忆。
@@ -243,9 +244,12 @@ Wan2.2 在首轮对每个镜头独立运行，不读取上一镜头结果。epis
 1. 选择完整 episode，不从不同位置任意抽取并重排镜头；
 2. 严格按照 `scenes`、镜头列表和 `_window_shot_ids` 的官方顺序生成；
 3. 保持官方 `video_prompts`、`action_descriptions`、`cut` 和 `entity_schedule` 不变；
-4. 每个 episode 的所有镜头都保留在输出中；
-5. Treatment 仅对 `entity_schedule` 中恰好一个角色的镜头尝试注入；
-6. 多角色、无角色、未检测到可靠人脸或脸小于实用阈值的镜头不注入，直接复用 Control 视频；
+4. 当前插件评测只生成并统计 `entity_schedule` 明确为单角色的镜头；多人镜头不进入
+   Control/Treatment 聚合，也不在 PuLID-FLUX 或 IP-Adapter 路线上尝试身份注入；
+5. 每个被评测角色使用 episode-local 固定身份参考、FaceLift Gaussian 和姿态标定；已经生成的
+   全角色资产继续保留，避免未来更换原生多参考图像模型时重复构建；
+6. 单角色镜头通过预先固定的检测、尺寸、姿态可靠性和 mask 质量 gate 后才执行 v7；未通过时
+   Treatment 复用 Control，不能依据 Treatment 最终得分事后筛除负例；
 7. 生成基础首帧后，再测量实际人脸占比、yaw 和光照做分层统计，不改写提示词来人为制造分组。
 
 首轮暂定三个 easy episode，共 34 个有序镜头，其中 23 个是单角色镜头：
@@ -258,13 +262,13 @@ Wan2.2 在首轮对每个镜头独立运行，不读取上一镜头结果。epis
 
 选择这三个 episode 是因为长度较短、单角色镜头比例较高、主要角色会重复出现，并覆盖男女角色、现代/古装、受伤妆容和不同场景。正式运行前仍需检查角色规范参考图是否有人脸清晰、镜头提示词是否要求严重遮挡；不合格时换用其他 easy episode，并记录替换原因。
 
-冒烟轮先使用 PuLID-FLUX 首帧、Wan2.2 视频模型和一个视频随机种子。多角色/无角色镜头在 Treatment 中复用 Control，因此理论上需要实际生成：
+冒烟轮先使用 PuLID-FLUX 首帧、Wan2.2 视频模型和一个视频随机种子。当前完全排除多角色/无角色镜头，因此每种首帧路线理论上最多生成：
 
 ```text
-34 个 Control 视频 + 最多 23 个单角色 Treatment 视频 = 最多 57 个短视频
+23 个单角色 Control 视频 + 最多 23 个单角色 Treatment 视频 = 最多 46 个短视频
 ```
 
-未检测到可靠人脸而跳过注入的单角色镜头也复用 Control，所以实际数量可能更少。流程稳定后再增加第二个种子。该结果是完整有序 episode 上的单角色可用区间评测，不等同于完整 EntityBench 排名；完整覆盖仍需实现多人脸身份匹配与分别注入。
+未检测到可靠人脸而跳过注入的单角色镜头也复用 Control，所以实际数量可能更少。流程稳定后再增加第二个种子。该结果是三个有序 episode 中的单角色子集评测，不等同于完整 EntityBench 排名。多人能力留给原生支持多参考主体的后续图像模型，不再强行扩展当前两条路线。
 
 当前 PuLID-FLUX pilot 将可复现的实用 gate 固定为：step-30 检测脸框高度至少 24 px；否则不注入。从 step 30 起最多尝试 3 次可靠人脸检测，仍失败则完成 Control 去噪并让 Treatment 视频直接复用 Control。gate 的目标是定义插件适用覆盖率，不得依据 Treatment 身份分数的好坏事后排除样本；只要通过尺寸与检测 gate，即使身份指标下降也必须保留为负例。
 
@@ -383,3 +387,49 @@ IP-Adapter 路线有 5 个镜头实际应用插件、3 个单人镜头因可靠�
 该正增益不能替代质量判断：`4:5` 的视频增益几乎消失，`5:2` 是低信号远景小脸，`6:1` 出现写实注入脸与插画场景的明显风格冲突。下一轮必须增加风格/OOD gate、视频传播衰减分析与盲评，不能只按 cosine 宣称成功。
 
 详细指标、公式和文件入口见 `LLM_HANDOFF.md` 第 16 节及 `episode_identity_summary.json`。
+
+## 14. run719 EntityBench Control vs v7 重评（2026-09-22）
+
+已对同一个完整有序 12-shot episode 的两条首帧路线执行成对重评：
+
+- PuLID-FLUX Control vs v7；
+- SDXL/IP-Adapter Control vs v7。
+
+本轮使用 EntityBench 开源 evaluator 的可本地运行部分。按当前约定，所有需要 VLM/大模型 API 的人脸属性、物体属性、场景细节、动作遵循和 LLM judge 指标均跳过；已完成：
+
+- VBench 六项视频质量指标；
+- GroundingDINO + CLIP 的角色、物体和地点出现率；
+- DINOv2 的跨镜头人脸/物体一致性；
+- DINOv2 的 MI2V 镜头边界连续性。
+
+结果入口：
+
+- run719 单 episode 的旧重复目录已清理；三 episode 历史汇总：
+  `outputs/entitybench_official_eval_pilot3/control_v7_summary.md`
+- 结构化汇总：`outputs/entitybench_official_eval_pilot3/control_v7_summary.json`
+- 当前单人主报告：`outputs/entitybench_reference_dino_pilot3/reference_dino_summary.md`
+- 官方格式输入软链接：`outputs/entitybench_official_eval_inputs/pilot3_*`
+
+核心结果：
+
+| 首帧路线 | 指标 | Control | v7 | Δ |
+|---|---|---:|---:|---:|
+| PuLID-FLUX | `cs_face` | 0.6349 | 0.6358 | +0.0009 |
+| PuLID-FLUX | `cs_transition_boundary` | 0.3499 | 0.3791 | +0.0292 |
+| PuLID-FLUX | VBench subject consistency | 0.9361 | 0.9373 | +0.0012 |
+| IP-Adapter | `cs_face` | 0.6454 | 0.6450 | -0.0004 |
+| IP-Adapter | `cs_transition_boundary` | 0.1786 | 0.1734 | -0.0052 |
+| IP-Adapter | VBench subject consistency | 0.9139 | 0.9133 | -0.0006 |
+
+两条路线的时序与主体质量整体近似中性；aesthetic quality 分别下降 `0.0043` 和 `0.0036`，imaging quality 分别提高 `0.4426` 和 `0.0964`。单 episode 的这些小差异不能视为显著结论。
+
+解释时必须区分两类指标：
+
+```text
+InsightFace 身份指标 = cosine(原始身份参考, 生成帧目标脸)
+EntityBench cs_face = 同一命名角色在不同生成镜头之间的 DINOv2 一致性
+```
+
+因此 `cs_face` 基本持平不否定此前插件相对原始身份参考的正增益；一个模型可以稳定地生成同一个错误身份，仍得到较高 `cs_face`。本轮只有 1 个 episode，且逐实体 GroundingDINO 检出集合在 PuLID Control/v7 间由 42/45 变为 39/45，逐实体差值只能作为诊断，不能单独当作身份结论。正式结论仍需扩展 episode/随机种子并执行盲评。
+
+评测器新增 `--skip_vlm`，该模式只跳过 API/VLM 项并保留上述本地指标；报告 manifest 会标记 `evaluation_scope=partial_without_vlm`。这不是完整 EntityBench 51 指标结果，也不得用于声称官方榜单成绩。

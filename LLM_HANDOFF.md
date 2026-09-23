@@ -1,6 +1,6 @@
 # 3D 人脸一致性注入项目交接文档
 
-> 最后更新：2026-09-22。仓库根目录：`/root/autodl-tmp/movie`。
+> 最后更新：2026-09-23。仓库根目录：`/root/autodl-tmp/movie`。
 >
 > 当前只以 **v7 color-safe 注入策略**为有效实现。旧 v4/v5 调色实验已从项目目录移走；不要恢复 self-attention、旧像素合成调色、geometric-only mask 或旧实验参数。
 
@@ -129,7 +129,7 @@ target_next += mask * strength * residual
 
 Treatment 在完全相同的全局 IP 条件上增加 v7 局部 3D residual。因此 IP-Adapter 实验测的是插件的增量收益，不是“无身份条件 vs 有身份条件”。
 
-当前没有验证 IP-Adapter 多身份分别绑定多张目标脸。多人 IP 镜头使用 text-only SDXL Control 并让 Treatment 复用；这不代表 PuLID-FLUX 多人局部注入路线不存在。
+当前没有验证 IP-Adapter 多身份分别绑定多张目标脸。PuLID-FLUX 曾试验多人局部注入，但自动角色映射不可靠；两条路线的多人镜头均已退出当前正式评测。
 
 ## 4. 权威代码入口
 
@@ -175,7 +175,12 @@ Benchmark：
 
 `outputs/entitybench_wan22_smoke/episode_00053051/assets/`
 
-已有完整资产：Viktor、Roman。Julian、Silas、Leo 尚无完整身份参考和 Gaussian，因此不能用 Viktor/Roman 冒充。
+旧 pilot 仅有 Viktor、Roman 等主要角色资产。2026-09-22 已完成正式补建：run719
+含 Viktor、Julian、Silas、Roman、Leo；run1517 含 Tae-hwan、Hyeon-sik、Jin-woo；
+run893 含 Chloe、Julian、Leo、Eleanor。三个 episode 共 12/12 个角色均已核对固定参考图、
+对应 FaceLift Gaussian 和独立姿态标定，FaceLift 输入哈希与参考图一致。资产构建必须扫描
+完整 `entity_schedule`，不再只选择至少有一次单独出镜的角色，且绝不能跨 episode 按同名
+人物复用资产。
 
 旧调色实验已从 `experiment_output` 移走；该目录现在只保留：
 
@@ -239,19 +244,13 @@ Benchmark：
 - `6:1` cosine 提升大，但写实脸与插画场景冲突，属于视觉质量失败；
 - 不能只按 cosine 宣称全部样本成功。
 
-### 7.3 PuLID-FLUX 双人物 v7
+### 7.3 PuLID-FLUX 双人物 v7（历史结果，不再纳入评测）
 
-唯一有效的自动角色映射输出：
+旧自动角色映射试验已随多人路线退出当前范围，并于 2026-09-23 移至：
 
-`outputs/entitybench_wan22_multiface_v7/episode_00053051/official_shot_4_2_autoassign/`
+`/root/.local/share/Trash/files/movie_outputs_obsolete_20260923/outputs/entitybench_wan22_multiface_v7/`
 
-正确映射：左脸 Viktor，右脸 Roman。v7 color-safe 首帧逐角色结果：
-
-| 角色 | Control | v7 Treatment | Δ |
-|---|---:|---:|---:|
-| Viktor | 0.018376 | 0.030058 | +0.011681 |
-| Roman | 0.093390 | 0.156139 | +0.062749 |
-| 宏平均 | 0.055883 | 0.093098 | +0.037215 |
+不要从该历史结果推导当前算法结论；PuLID-FLUX 与当前 IP-Adapter 只评单角色镜头。
 
 当前映射方向正确，但绝对匹配分数偏低。尚未实现可靠的绝对分数、候选间隔和歧义 gate，也尚未完成多人视频逐角色评估。
 
@@ -321,12 +320,12 @@ cosine(原始身份参考 embedding, 当前生成帧目标脸 embedding)
 
 优先级从高到低：
 
-1. 对 IP-Adapter 当前镜头做 v7 `12 / 16 / 20` 注入步数消融，确认保守上限与身份增益/伪影的权衡。
-2. 加入风格/OOD gate，避免 `6:1` 这类写实脸注入插画场景。
-3. 分析 `4:5` 的 Wan 身份传播衰减；仅增强首帧未必足够，需要关键帧或视频级身份条件。
-4. 实现多人自动映射置信度 gate。
-5. 实现多人视频逐帧一对一角色匹配评估器。
-6. 再扩展到更多完整 EntityBench episode 和随机种子。
+1. 增加单人姿态可靠性 gate：保留正常侧脸，只拦截标定外推失败、渲染回检误差过大和退化 mask。
+2. 对 IP-Adapter 当前镜头做 v7 `12 / 16 / 20` 注入步数消融，确认保守上限与身份增益/伪影的权衡。
+3. 加入风格/OOD gate，避免 `6:1` 这类写实脸注入插画场景。
+4. 分析 `4:5` 的 Wan 身份传播衰减；仅增强首帧未必足够，需要关键帧或视频级身份条件。
+5. 再扩展到更多单角色 EntityBench 镜头和随机种子。
+6. 多人能力改由原生多参考图像模型单独立项，不继续扩展当前 PuLID-FLUX/IP-Adapter 多人路径。
 
 ## 11. 禁止回退的路径
 
@@ -340,14 +339,97 @@ cosine(原始身份参考 embedding, 当前生成帧目标脸 embedding)
 
 ## 12. 清理状态
 
-旧 v4/v5 调色与回归结果、旧小脸总览以及已确认错配的首轮多人结果已移出项目。可恢复位置：
+旧 v4/v5 调色与回归结果、旧小脸总览以及已确认错配的首轮多人结果已移出项目。2026-09-23 又清理了旧 v6 mask、旧 smoke 生成物、run719 重复评测、多人试验结果及可重建 evaluator `.work` 缓存。可恢复位置：
 
 `/root/.local/share/Trash/files/movie_pre_v7_results_20260922/`
+
+`/root/.local/share/Trash/files/movie_outputs_obsolete_20260923/`
 
 项目中当前应保留：
 
 - `experiment_output/facelift_pose_calibration/`
 - `outputs/entitybench_wan22_colornested_v7_s04_12/`
+- `outputs/entitybench_wan22_pulid_v7_pilot3/`
 - `outputs/entitybench_wan22_ip_adapter_v7_s04_12/`
-- `outputs/entitybench_wan22_multiface_v7/.../official_shot_4_2_autoassign/`
+- `outputs/entitybench_wan22_ip_adapter_v7_pilot3/`
+- `outputs/entitybench_reference_dino_pilot3/`
+- `outputs/entitybench_official_eval_pilot3/` 中最终 JSON/Markdown 报告（`.work` 已清理）
+- `outputs/entitybench_pilot3/*/assets/`
 - v7 依赖的 `outputs/entitybench_wan22_smoke/episode_00053051/assets/`
+
+## 13. EntityBench 非 API 重评状态（2026-09-22）
+
+run719 的 Control vs v7 已完成部分官方重评，覆盖 PuLID-FLUX 与 IP-Adapter 两条首帧路线。为了不调用外部大模型 API，`benchmarks/entitybench/eval/evaluate_benchmark.py` 新增了 `--skip_vlm`：保留 VBench、GroundingDINO/CLIP presence、DINOv2 跨镜头一致性与镜头边界连续性，跳过 VLM 属性/动作评分和 LLM judge。
+
+run719 单 episode 的旧重复评测目录已在 2026-09-23 清理；三 episode 历史汇总保留在：
+
+- `outputs/entitybench_official_eval_pilot3/control_v7_summary.md`
+- `outputs/entitybench_official_eval_pilot3/control_v7_summary.json`
+
+该历史官方格式汇总包含完整 episode 中复用 Control 的非注入镜头。当前算法结论应优先使用
+`outputs/entitybench_reference_dino_pilot3/` 和各路线的 `video_identity_report_single_character.json`，
+只统计单角色且实际触发插件的成对样本。
+
+| 路线 | `cs_face` Δ | 边界连续性 Δ | subject consistency Δ | aesthetic Δ |
+|---|---:|---:|---:|---:|
+| PuLID-FLUX | +0.0022 | +0.0099 | +0.0009 | +0.0022 |
+| IP-Adapter | +0.0170 | -0.0042 | -0.0007 | -0.0014 |
+
+这轮说明 v7 对 EntityBench 的跨镜头自一致性和基础视频质量总体近似中性；不能据一个 episode 判断显著改善或退化。`cs_face` 是同一角色不同生成镜头之间的 DINOv2 一致性，并不以原始身份图为锚点。它与第 7 节 InsightFace 原始身份 cosine 回答不同问题，所以必须并列报告，不能相互替代。
+
+本轮环境与本地模型：
+
+- 独立评测环境：`/root/autodl-tmp/envs/entitybench-eval`
+- VBench：`/root/autodl-tmp/models/entitybench_vbench`
+- GroundingDINO：`/root/autodl-tmp/models/entitybench_groundingdino`
+- BERT：`/root/autodl-tmp/models/bert-base-uncased`
+- CLIP：`/root/autodl-tmp/models/clip-vit-base-patch32`
+- DINOv2：`/root/autodl-tmp/models/dinov2-base`
+
+复现链路：
+
+1. `pretest/prepare_entitybench_official_eval.py` 从现有 generation manifest 建立 Control/v7 官方目录软链接，不复制视频；
+2. evaluator 分别执行 `--pillars 1` 和 `--pillars 2,3 --skip_vlm`；
+3. `pretest/summarize_entitybench_control_v7.py` 合并四组报告并计算 v7-Control。
+
+报告 manifest 必须保留 `evaluation_scope: partial_without_vlm`。VLM/LLM 字段为 `null` 表示未运行，绝不能解释为 0；当前结果也不是完整 EntityBench 排名。
+
+## 14. 三 episode 当前正式范围：单角色插件评测（2026-09-23）
+
+PuLID-FLUX 与当前 SDXL IP-Adapter 接法都没有可靠的多身份空间绑定，因此不再把多人局部注入
+纳入这两条路线的正式结论。旧多人输出已移到回收站；多人相关代码暂时保留，不能把它产生的
+历史结果混入当前单人汇总。
+
+当前固定流程：
+
+```text
+读取完整 episode 及官方顺序
+→ 仅选择 entity_schedule 明确为单角色的镜头
+→ 固定角色参考图、FaceLift Gaussian 和姿态标定
+→ 生成成对 Control / v7 首帧
+→ 仅通过预先固定可靠性 gate 的 Treatment 送入 Wan
+→ 计算参考身份锚定的首帧与视频逐帧指标
+```
+
+资产覆盖审计仍保留：
+
+- run719：Viktor、Julian、Silas、Roman、Leo，共 5 人；
+- run1517：Tae-hwan、Hyeon-sik、Jin-woo，共 3 人；
+- run893：Chloe、Julian、Leo、Eleanor，共 4 人。
+
+当前入口：
+
+- `pretest/prepare_entitybench_character_assets.py`：默认
+  `--character-scope scheduled`，构建 episode 全角色资产；旧
+  `--character-scope single-shot` 只用于复现 pilot；
+- `pretest/prepare_entitybench_pulid_pairs.py`：PuLID-FLUX 单角色成对首帧；
+- `pretest/prepare_entitybench_ip_adapter_pairs.py`：IP-Adapter 单角色成对首帧；
+- `pretest/evaluate_reference_dino_identity.py`：参考角色图锚定的单人 DINOv2 评估。
+
+执行状态：
+
+- 全角色资产已完成：12/12 角色完整；虽然当前只评单人，这些资产继续保留；
+- 三 episode 的 PuLID-FLUX、IP-Adapter 单人首帧、Wan 视频、InsightFace 与 DINOv2 报告已完成；
+- 下一轮必须补充姿态可靠性 gate：侧脸可以注入，但 `pose_calibration.applied=false`、渲染后
+  姿态回检误差过大或有效 mask 退化为狭长碎片时应预先跳过并复用 Control；
+- 多人镜头不进入当前两条路线的 Control/Treatment 聚合。后续如加入原生多参考模型，另建实验根目录。

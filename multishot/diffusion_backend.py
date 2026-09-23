@@ -324,12 +324,23 @@ class OpenSourceDiffusionBackend:
             "status": "applied",
         }
 
-    def generate_image(self, prompt: str, output_path: str, steps: int = 30):
-        """直接用开源 diffusion pipeline 生成一张图片。"""
+    def generate_image(
+        self,
+        prompt: str,
+        output_path: str,
+        steps: int = 30,
+        seed: int | None = None,
+    ):
+        """直接用开源 diffusion pipeline 生成一张可复现图片。"""
 
         pipe = self._load()
+        torch = self._torch
         image_path = Path(output_path)
         image_path.parent.mkdir(parents=True, exist_ok=True)
+        if seed is None:
+            seed = int(os.getenv("MULTISHOT_DIFFUSION_SEED", "42"))
+        generator_device = self.device if self.device == "cuda" else "cpu"
+        generator = torch.Generator(device=generator_device).manual_seed(int(seed))
 
         image = pipe(
             prompt=prompt,
@@ -338,6 +349,7 @@ class OpenSourceDiffusionBackend:
             width=self.width,
             num_inference_steps=steps,
             guidance_scale=self.guidance_scale,
+            generator=generator,
         ).images[0]
         image.save(image_path)
 

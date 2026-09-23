@@ -2671,6 +2671,7 @@ def evaluate_intra_shot_alignment(
     artifact_dir: str,
     vlm_model: str,
     save_action_grid: bool = False,
+    skip_vlm: bool = False,
 ) -> Dict[str, Any]:
     """Compute Pillar 3 metrics for ONE shot from a pre-grounded result.
 
@@ -2756,6 +2757,23 @@ def evaluate_intra_shot_alignment(
                 "canonical_path": info["canonical_path"],
             })
         out["presence"][etype] = type_results
+
+    # API-free partial evaluation mode. Presence is fully determined by the
+    # official GroundingDINO -> CLIP pipeline above, while fidelity and action
+    # require the benchmark's configured VLM endpoint. Keep those fields
+    # explicitly unavailable instead of attempting calls or inventing scores.
+    if skip_vlm:
+        out["action"] = {
+            "criteria": {k: None for k in _INTRA_ACTION_CRITERIA},
+            "action_depicted": None,
+            "overall": None,
+            "n_unannotated": None,
+            "n_frames": len(frames),
+            "vlm_failed": False,
+            "skipped_reason": "vlm_disabled",
+            "grid_path": None,
+        }
+        return out
 
     # ---- FIDELITY: send canonical crop to Gemini-2.5-pro ----
     # Per-criteria scores are surfaced as separate metrics by the caller.
@@ -2952,6 +2970,7 @@ def evaluate_episode(
     vbench_evaluator: Optional["VBenchEvaluator"] = None, work_dir: str = "",
     save_action_grids: bool = False,
     llm_concurrency: int = 5,
+    skip_vlm: bool = False,
 ) -> EpisodeResult:
 
     episode_dir = os.path.join(results_dir, episode_id)
@@ -3248,6 +3267,7 @@ def evaluate_episode(
                     artifact_dir=shot_artifacts,
                     vlm_model=BENCHMARK_CONFIG["vlm_model_intra_fidelity"],
                     save_action_grid=save_action_grids,
+                    skip_vlm=skip_vlm,
                 )
                 return (sk, ev)
             except Exception as e:
@@ -3491,6 +3511,24 @@ def evaluate_episode(
             f"{len(tscs_boundary)}/{len(mi2v_pairs)} MI2V pairs "
             f"({n_trans_failed} failed)"
         )
+
+        # The embedding-based cross-shot metrics above do not require an API.
+        # In --skip_vlm mode, finish with gap-decay and leave all llm_* metrics
+        # absent/null. This run is intentionally partial and is marked as such
+        # in run_manifest.json; it must not be presented as the full 51-metric
+        # canonical benchmark.
+        if skip_vlm:
+            result.gap_decay_data = compute_gap_decay(
+                deduped, shot_order,
+                entity_types=("character", "object"),
+            )
+            if work_dir:
+                import shutil
+                for subdir in ["vbench_batch_", "vbench_out_"]:
+                    ep_work = os.path.join(work_dir, f"{subdir}{episode_id}")
+                    if os.path.isdir(ep_work):
+                        shutil.rmtree(ep_work, ignore_errors=True)
+            return result
 
         # ---- LLM judge: characters and objects (pairwise vs centroid-representative) ----
         # We use anchor-vs-each pairwise judging because Gemini's
@@ -4210,6 +4248,13 @@ def main():
                              "rotating client serializes per-key access so "
                              "this is safe to set up to n_keys; setting it "
                              "higher than n_keys gives no benefit.")
+    parser.add_argument(
+        "--skip_vlm", action="store_true",
+        help=("Skip all API-backed VLM judgments while retaining VBench, "
+              "GroundingDINO/CLIP presence, DINOv2 cross-shot metrics, "
+              "transition consistency, and gap decay. The resulting report "
+              "is a partial, non-canonical EntityBench evaluation."),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -4261,6 +4306,10 @@ def main():
     manifest["allow_partial"] = args.allow_partial
     manifest["allow_config_override"] = args.allow_config_override
     manifest["pillars"] = sorted(pillars)
+    manifest["skip_vlm"] = bool(args.skip_vlm)
+    manifest["evaluation_scope"] = (
+        "partial_without_vlm" if args.skip_vlm else "canonical_full"
+    )
     # Record key COUNT only (never the keys themselves). Two runs are
     # comparable regardless of how many keys were used; the count is
     # purely informational so reviewers can see whether 429s were
@@ -4410,6 +4459,7 @@ def main():
             vlm_model, n_frames, vbench_evaluator=vbench_eval, work_dir=work_dir,
             save_action_grids=args.save_action_grids,
             llm_concurrency=args.llm_concurrency,
+            skip_vlm=args.skip_vlm,
         )
         all_results.append(r)
 
