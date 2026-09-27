@@ -1,435 +1,182 @@
-# 人脸一致性注入插件评测方案（初稿）
+# 人脸一致性注入插件评测方案
 
-## 1. 评测定位
+更新时间：2026-09-27。
 
-本项目现阶段不负责重新设计完整的多镜头视频生成系统，而是将已有方法定义为一个独立的 **首帧/关键帧人脸身份增强插件**。
+## 1. 当前评测目标
 
-插件接口可抽象为：
+当前只评测“3D 人脸一致性注入插件”，不把剧本拆分、镜头规划或跨镜头记忆包装成已经完成的
+智能体能力。
 
-```text
-目标首帧（或关键帧）
-+ 原始身份参考图
-+ 3D 人脸、姿态及人脸区域信息
-→ 人脸一致性注入插件
-→ 身份增强后的首帧（或关键帧）
-```
-
-插件输出再交给任意兼容的图生视频或多镜头生成系统。核心研究问题是：
-
-> 在下游视频生成流程保持不变时，插件能否稳定提高视频帧相对于原始人物的身份一致性，并且不明显损害画质、动作、光影和时序稳定性？
-
-## 2. 插件当前包含的能力
-
-- 3D 人脸建模与目标姿态标定；
-- 根据目标首帧进行光影、色调迁移；
-- 精细人脸语义分割辅助调色；
-- 收缩注入区域，排除发际线、太阳穴、脸颊外轮廓、下巴边缘及耳朵；
-- 在扩散 latent 轨迹中进行受 mask 约束的身份注入；
-- 针对不同人脸尺寸调整 mask/token 覆盖与注入强度的自适应策略。
-
-正式实验时必须锁定插件版本，并记录全部参数，避免不同实验使用不同实现。
-
-## 3. 基本对照设计
-
-对每个测试样本生成严格成对的结果：
+每个镜头采用严格成对设计：
 
 ```text
-Control：原始首帧 → 视频模型 → Control 视频
-Treatment：同一原始首帧 → 注入插件 → 同一视频模型 → Treatment 视频
+Control：首帧生成模型正常生成 → Wan2.2
+Treatment：相同 seed/噪声/条件 + v7 局部 3D residual → Wan2.2
 ```
 
-两组除插件开关外保持一致：
+除是否执行 v7 外，提示词、身份资产、首帧模型、随机种子、分辨率和 Wan 参数保持一致。
 
-- 剧本与镜头提示词；
-- 身份及场景资产；
-- 首帧生成模型及参数；
-- 视频模型及参数；
-- 随机种子和初始噪声；
-- 分辨率、帧数、帧率与运动强度；
-- 后处理流程。
+## 2. 当前唯一有效的插件版本
 
-每个条件建议运行 4～8 个随机种子，报告均值、方差和成对差值，而不是只展示最佳样本。
+当前只保留 v7 color-safe 路径：
 
-## 4. 实验变量与矩阵
+1. 在注入起点的 `pred_x0` 检测人脸框和 pitch/yaw/roll；
+2. 从 episode-local FaceLift Gaussian 连续渲染目标姿态；
+3. 用 InsightFace 对渲染结果做姿态回检；
+4. 用目标脸与 3D 脸的皮肤交集估计低频 log-RGB 光影；
+5. 通过 BiSeNet 构造 v7 color-safe 身份核心，排除发际线、太阳穴、外脸颊、下巴边缘和耳朵；
+6. 将调色后的纯 3D reference 编码为 latent，在同 timestep 做局部 trajectory residual；
+7. 根据脸高自适应缩短注入窗口并降低小脸强度，正常脸基准强度为 `0.4`。
 
-### 4.1 首帧生成方式
+## 3. 预先固定的安全 gate
 
-- PuLID-FLUX；
-- IP-Adapter；
-- 后续可加入其他身份条件图像模型。
+gate 必须在查看 Treatment 指标之前确定，不能事后删除负例。
 
-### 4.2 插件条件
+| Gate | 处理 |
+|---|---|
+| 无可靠人脸或脸高 `<24 px` | Treatment 复用 Control |
+| 连续 Gaussian 渲染失败 | Treatment 复用 Control |
+| 渲染后姿态回检超阈值 | Treatment 复用 Control |
+| v7 color-safe core 为空 | Treatment 复用 Control |
+| 提示词明确要求闭眼 | Treatment 复用 Control，记录 `prompt_eye_closure_conflict` |
+| 当前 PuLID-FLUX/IP-Adapter 多角色镜头 | Treatment 复用 Control |
 
-- Off：不进行 3D 人脸一致性注入；
-- On：使用完整插件；
-- 消融实验：分别关闭姿态标定、调色、精细分割、自适应 mask/权重等模块。
+“复用 Control”表示 Control 正常生成，Treatment 复制同一结果并在 manifest 中引用同一视频；该镜头
+仍属于完整 episode，所有成对增益记为 0。
 
-### 4.3 下游视频模型
+## 4. 当前数据范围
 
-当前首轮只使用：
+固定三个完整有序 EntityBench easy episode，共 34 个镜头、23 个单角色镜头：
 
-- Wan2.2-TI2V-5B：每个镜头由自己的首帧直接驱动，镜头之间不共享视频记忆。它用于隔离验证身份增强能否从首帧传播到该镜头后续帧。
+| Episode | 总镜头 | 单角色镜头 |
+|---|---:|---:|
+| `run719` | 12 | 8 |
+| `run893` | 10 | 5 |
+| `run1517` | 12 | 10 |
 
-StoryMem MI2V 和其他带历史记忆的方法放到第二阶段。首轮不同时引入记忆机制，避免无法区分身份变化来自首帧插件还是跨镜头记忆。
+角色参考图、FaceLift Gaussian 和姿态标定均为 episode-local 固定资产。所有镜头保持 EntityBench
+原始顺序、`video_prompts`、`action_descriptions`、`cut` 与 `entity_schedule`。
 
-核心矩阵示例：
+## 5. 当前模型矩阵
 
-| 首帧方法 | 插件 | 视频模型 |
-|---|---:|---|
-| PuLID-FLUX | Off / On | Wan2.2 |
-| IP-Adapter | Off / On | Wan2.2 |
+| 首帧路线 | 当前单角色策略 | 当前多角色策略 | 下游视频 |
+|---|---|---|---|
+| PuLID-FLUX | Control vs v7 | 复用 Control | Wan2.2-TI2V-5B |
+| SDXL/IP-Adapter | Control vs v7 | 复用 Control | Wan2.2-TI2V-5B |
+| Qwen-Image-2.1 | Control vs v7 | 原生多参考 Control vs 同步多人 v7 | Wan2.2-TI2V-5B |
 
-后续再对 StoryMem 和其他兼容首帧/关键帧条件的视频模型重复相同的 Off/On 成对实验。
+Wan2.2 对每个镜头独立首帧驱动，不读取上一镜头历史。当前两条路线不具备可靠的多参考身份绑定，
+因此不在它们上面继续做多人注入。多人验证迁移到 Qwen-Image-2.1 原生多参考 Control，并继续使用
+逐角色 v7 mask 和同步 residual。
 
-## 5. 核心评价指标
+run719 / shot 1:1 的首个多人 pilot 已完成。2026-09-27 在其基础上启动 Qwen 三 episode 全量实验：
+34 个 shot（23 单人、11 多人）均生成 Control/Treatment 首帧，28 个实际注入，6 个按预先固定 gate
+复用 Control。Wan 仍采用完全相同参数的成对设计。Qwen 结果单独成表，不与 PuLID/IP-Adapter
+单角色主表混合。
 
-### 5.1 首帧身份一致性
+Qwen 全量实验的额外规则：
 
-计算原始身份参考图与首帧检测人脸之间的 ArcFace/InsightFace cosine：
+- 输入每个 scheduled character 的 episode-local 参考图；
+- Control 中可靠脸少于 scheduled character 时整镜头复用 Control；
+- 可靠脸多于计划人数时选择面积最大的主脸，并记录额外脸数量；
+- 角色映射采用 InsightFace 全局一对一最大 cosine，保存矩阵、选择分数和 margin；
+- 视频角色跟踪只使用初始空间位置，不用身份 embedding 挑选待测脸，避免指标泄漏。
 
-- Control 首帧 cosine；
-- Treatment 首帧 cosine；
-- 插件带来的成对增益。
+## 6. 指标
 
-### 5.2 视频内身份保持
+### 6.1 原始身份锚定 InsightFace
 
-对视频中每个可检测到人脸的帧计算“原始身份参考图 ↔ 当前帧人脸”的 cosine，报告：
+对原始角色参考图与生成首帧/视频帧的人脸计算 cosine：
 
-- 全帧平均值；
-- 中位数及第 10 百分位；
-- 最低值与末帧值；
-- 从首帧到末帧的下降量/回归斜率；
-- 人脸可检测帧覆盖率。
+- 首帧 Control、Treatment 及成对差值；
+- 视频 `first`、`mean`、`median`、`p10`、`minimum`、`last`；
+- 首尾漂移、全视频回归斜率和人脸检测覆盖率。
 
-身份评估必须始终以原始身份为锚点，不能只计算生成帧之间的互相相似度，避免把“稳定地生成成另一个人”误判为成功。
+### 6.2 原始参考图锚定 DINOv2
 
-### 5.3 跨镜头身份一致性
+对扩展人脸裁剪计算 DINOv2 cosine，报告首帧和视频逐帧聚合。它衡量更宽泛的脸部视觉特征，
+不能由 InsightFace 替代；两者不同向时必须同时报告。
 
-- 原始身份与每个镜头代表帧的相似度；
-- 各镜头身份分数的均值、最低值和方差；
-- 随镜头间隔增加时的身份衰减；
-- 通过身份 fidelity gate 的镜头/人物覆盖率；
-- 辅助报告镜头间两两相似度，但不将其作为唯一身份指标。
+### 6.3 EntityBench 本地指标（待按当前 gate 重算）
 
-### 5.4 非身份质量指标
+下一轮可运行不需要大模型 API 的部分：
 
-- 人脸畸变、五官重绘、边缘锯齿和 mask 泄漏；
-- 发型、服装、背景、构图和光影保持；
-- 视频闪烁、运动平滑度、主体稳定性；
-- 动作及提示词遵循程度；
-- 人脸以外区域的 LPIPS/SSIM 或感知差异；
-- 人工或多模态模型盲评。
+- VBench：subject consistency、temporal flickering、motion smoothness、dynamic degree、
+  aesthetic quality、imaging quality；
+- GroundingDINO/CLIP presence；
+- DINOv2 `cs_face`、`cs_object`、`cs_transition_boundary`。
 
-## 6. 分层统计
+旧非 API 汇总在闭眼 gate 加入前生成，已从当前结果区移除。重算完成前不得把旧值当作当前结果。
+VLM 角色属性、动作判断和 LLM judge 尚未运行，缺失值不能当作 0，也不能声称完整官方排名。
 
-结果不能只给一个总体平均值，至少按以下条件分别统计：
+## 7. 自动汇总脚本
 
-- 人脸尺寸：小脸、中脸、大脸；
-- 姿态：近正脸、中等 yaw、大 yaw/侧脸；
-- 景别：特写、半身、全身/远景；
-- 光照：自然光、低照度、复杂彩光；
-- 动作：静态、小幅动作、大幅动作；
-- 镜头关系：硬切镜、连续镜头；
-- 视频模型及首帧生成方法。
+当前所有 episode 的总表和逐镜头明细由一个脚本生成：
 
-初始可用人脸框面积占图像比例 `<2%`、`2%～8%`、`>8%` 划分尺寸，用 `|yaw| <15°`、`15°～30°`、`>30°` 划分姿态；最终阈值应根据 benchmark 的实际分布调整。
+```bash
+cd /root/autodl-tmp/movie
+.venv/bin/python pretest/summarize_current_episode_results.py
+```
 
-## 7. 插件适用边界
+输出：
 
-主要结论应限定为：
+- `EPISODE_TEST_RESULTS.md`：人类可读的 episode 汇总和每镜头明细；
+- `outputs/entitybench_current_summary.json`：机器可读完整结果；
+- 脚本同时读取各 episode 的首帧结果、视频 InsightFace 报告和参考图 DINOv2 报告，不手工
+  复制指标；它输出跨 episode 总表、每个 episode 汇总和逐 shot 明细。
 
-> 面向显式首帧或关键帧条件视频生成流程的、模型相对无关的人脸身份增强插件。
+在任何首帧、视频或评测报告更新后重新执行该脚本即可。
 
-- **直接兼容**：接收外部首帧或关键帧的 I2V、MI2V 模型；
-- **需要适配**：内部会生成关键帧且允许替换或修改关键帧的方法；
-- **暂不纳入同一主实验**：没有公开首帧/关键帧入口、一次性联合去噪全部镜头的纯 T2V 方法。
+Qwen 三 episode 独立入口：
 
-如果不同模型需要修改插件介入位置，应单独成组报告，不能当作完全相同的插件实验。
+```bash
+pretest/run_qwen_image21_entitybench_full3.sh
+.venv/bin/python pretest/evaluate_qwen_image21_entitybench_batch.py \
+  --output-root outputs/entitybench_qwen_image21_v7_full3
+```
 
-## 8. 分阶段实施
+输出 `outputs/entitybench_qwen_image21_v7_full3/evaluation_report.json`，包含逐 episode、逐 shot、
+逐角色首帧/视频 InsightFace 和检测覆盖率。批处理可恢复；已有 Control、Treatment 和视频不会重算。
 
-### 阶段 A：单镜头传播验证
-
-用 Wan2.2 对若干 2～5 秒镜头进行 Off/On 对照，覆盖不同脸部尺寸、姿态和光照，确认首帧增益能否传播到后续帧。
-
-### 阶段 B：短多镜头验证
-
-选择少量完整有序 EntityBench episode，使用 Wan2.2 独立逐镜头生成。保持官方镜头顺序，但不向视频模型提供历史记忆；Control 全部不注入，Treatment 只在单角色镜头注入。
-
-### 阶段 C：EntityBench 子集
-
-扩大完整 episode 数量，并在直接首帧驱动结果稳定后增加 StoryMem 对照。重点分析角色跨镜头复现、长间隔复现、小脸和侧脸场景。
-
-### 阶段 D：扩大评测
-
-在算力允许时扩大到完整 benchmark，并加入更多视频 backbone。完整实验前先固定代码、模型权重、数据版本和指标实现。
-
-## 9. 主要报告方式
-
-插件效果统一报告为成对增益：
+## 8. 当前权威结果根目录
 
 ```text
-Δidentity = Treatment 身份分数 - Control 身份分数
-Δquality  = Treatment 质量分数 - Control 质量分数
+PuLID-FLUX / run719
+outputs/entitybench_wan22_colornested_v7_s04_12/episode_00053051/
+
+IP-Adapter / run719
+outputs/entitybench_wan22_ip_adapter_v7_s04_12/episode_00053051/
+
+PuLID-FLUX / run893、run1517
+outputs/entitybench_wan22_pulid_v7_pilot3/
+
+IP-Adapter / run893、run1517
+outputs/entitybench_wan22_ip_adapter_v7_pilot3/
+
+参考图 DINOv2
+outputs/entitybench_reference_dino_pilot3/reference_dino_summary.json
+
+Qwen-Image-2.1 三 episode（正在完成视频/评测）
+outputs/entitybench_qwen_image21_v7_full3/
+
 ```
 
-最终结论应回答：
-
-1. 插件是否在不同首帧模型和视频模型上普遍提高身份一致性；
-2. 增益是否能从首帧持续到视频后段及后续镜头；
-3. 哪些人脸尺寸、姿态、光照和动作条件下有效或失效；
-4. 身份提升是否以画质、动作或时序稳定性的下降为代价；
-5. 各模块分别贡献了多少增益。
-
-## 10. 当前范围
-
-当前 PuLID-FLUX 与 SDXL IP-Adapter 两条路线只评单人物。已有全角色资产继续保留，但
-多人同框镜头不执行身份注入，也不进入当前 Control/Treatment 聚合。后续多人实验应使用
-原生支持多参考主体的图像模型另建实验，不把旧多人映射试验混入本轮结论。
-
-当前优先评测的是**身份注入插件本身**，而不是完整智能体。EntityBench 在本阶段作为多镜头样本和评价框架使用，不要求复现从一句话开始的剧本拆分过程。
-
-## 11. 插件首轮评测执行方案
-
-### 11.1 评测对象
-
-固定上层资产、剧本和下游视频流程，只替换送入视频模型的首帧：
-
-```text
-完整有序 episode
-└── 单角色镜头子集
-    ├── Control：不注入 → Wan2.2
-    └── Treatment：通过可靠性 gate 后执行单人 v7 → Wan2.2
-```
-
-Wan2.2 在首轮对每个镜头独立运行，不读取上一镜头结果。episode 顺序用于组织输出、计算跨镜头身份变化和保持 benchmark 的正式时序定义，而不是作为视频模型的生成记忆。
-
-插件评测分为两个层次：
-
-1. **首帧直接增益**：插件是否提升首帧相对于原始身份图的相似度；
-2. **视频传播增益**：首帧的提升能否保留到后续帧和后续镜头。
-
-### 11.2 首轮数据
-
-首轮直接使用 EntityBench 开源 JSON 中的真实角色定义、实体调度和逐镜头提示词，不再人工编写“4 类镜头”。本地数据位于：
-
-```text
-/root/autodl-tmp/movie/benchmarks/entitybench/
-├── data/scripts/    # 140 个有序 episode JSON
-├── data/splits/     # easy / medium / hard 划分
-├── eval/            # 官方评测代码
-└── examples/
-```
-
-已核对的 EntityBench 数据字段包括：
-
-- `story_overview`：episode 故事概述；
-- `scenes[].video_prompts`：逐镜头完整生成提示词；
-- `scenes[].action_descriptions`：逐镜头动作描述；
-- `scenes[].cut`：硬切镜/连续镜头标记；
-- `entity_schedule`：每个镜头应出现的角色、地点和物体；
-- `entity_descriptions`：每个角色、地点和物体的名称、标签及文本定义；
-- `_window_shot_ids`：episode 内明确的有序镜头 ID。
-
-开源数据包含 140 个 episode、2,491 个镜头和 987 个 episode 内角色定义，但仓库不提供角色参考照片、视频真值或现成身份资产。因此，对每个选中角色需要先依据 `entity_descriptions` 生成一张规范身份参考图，并在该角色的所有 Control/Treatment 实验中固定使用同一张图。身份资产生成不计入插件 On/Off 变量。
-
-数据中约有：
-
-- 847 个单角色镜头（约 34.0%）；
-- 1,630 个多角色镜头（约 65.4%）；
-- 173 个“同一 episode/角色至少有两次单角色镜头”的候选组合，分布在 103 个 episode 中。
-
-因此当前单人物插件不能直接覆盖完整 EntityBench。第一轮构建一个明确标记为 **EntityBench ordered-episode pilot** 的子集，并遵循：
-
-1. 选择完整 episode，不从不同位置任意抽取并重排镜头；
-2. 严格按照 `scenes`、镜头列表和 `_window_shot_ids` 的官方顺序生成；
-3. 保持官方 `video_prompts`、`action_descriptions`、`cut` 和 `entity_schedule` 不变；
-4. 当前插件评测只生成并统计 `entity_schedule` 明确为单角色的镜头；多人镜头不进入
-   Control/Treatment 聚合，也不在 PuLID-FLUX 或 IP-Adapter 路线上尝试身份注入；
-5. 每个被评测角色使用 episode-local 固定身份参考、FaceLift Gaussian 和姿态标定；已经生成的
-   全角色资产继续保留，避免未来更换原生多参考图像模型时重复构建；
-6. 单角色镜头通过预先固定的检测、尺寸、姿态可靠性和 mask 质量 gate 后才执行 v7；未通过时
-   Treatment 复用 Control，不能依据 Treatment 最终得分事后筛除负例；
-7. 生成基础首帧后，再测量实际人脸占比、yaw 和光照做分层统计，不改写提示词来人为制造分组。
-
-首轮暂定三个 easy episode，共 34 个有序镜头，其中 23 个是单角色镜头：
-
-| Episode ID | 总镜头 | 单角色镜头 | 主要重复角色 |
-|---|---:|---:|---|
-| `00053051-5f7e-314f-85e0-517ec18f3b08__run719__i35_j44__T120` | 12 | 8 | Viktor |
-| `000cf326-8770-3c4e-a43a-6f9e3d57a3e0__run1517__i15_j40__T300` | 12 | 10 | Hyeon-sik、Jin-woo |
-| `000785f7-48d3-3a68-8ba7-82566cd6d77c__run893__i95_j118__T300` | 10 | 5 | Chloe |
-
-选择这三个 episode 是因为长度较短、单角色镜头比例较高、主要角色会重复出现，并覆盖男女角色、现代/古装、受伤妆容和不同场景。正式运行前仍需检查角色规范参考图是否有人脸清晰、镜头提示词是否要求严重遮挡；不合格时换用其他 easy episode，并记录替换原因。
-
-冒烟轮先使用 PuLID-FLUX 首帧、Wan2.2 视频模型和一个视频随机种子。当前完全排除多角色/无角色镜头，因此每种首帧路线理论上最多生成：
-
-```text
-23 个单角色 Control 视频 + 最多 23 个单角色 Treatment 视频 = 最多 46 个短视频
-```
-
-未检测到可靠人脸而跳过注入的单角色镜头也复用 Control，所以实际数量可能更少。流程稳定后再增加第二个种子。该结果是三个有序 episode 中的单角色子集评测，不等同于完整 EntityBench 排名。多人能力留给原生支持多参考主体的后续图像模型，不再强行扩展当前两条路线。
-
-当前 PuLID-FLUX pilot 将可复现的实用 gate 固定为：step-30 检测脸框高度至少 24 px；否则不注入。从 step 30 起最多尝试 3 次可靠人脸检测，仍失败则完成 Control 去噪并让 Treatment 视频直接复用 Control。gate 的目标是定义插件适用覆盖率，不得依据 Treatment 身份分数的好坏事后排除样本；只要通过尺寸与检测 gate，即使身份指标下降也必须保留为负例。
-
-上述最多 57 个视频是**每种首帧方法**的数量。首轮先完成 PuLID-FLUX；确认数据转换、首帧、I2V 和指标链路无误后，再在同一批 episode 上重复 IP-Adapter，避免一开始同时跑两套首帧方法导致问题难以定位。
-
-### 11.3 视频模型顺序
-
-1. 当前只用 Wan2.2-TI2V-5B，各镜头由自己的首帧独立驱动；
-2. 首先完成 PuLID-FLUX 首帧的三个有序 episode；
-3. 链路稳定后在同一批 episode 上重复 IP-Adapter，并决定是否加入第二个随机种子；
-4. 直接驱动结论稳定后，再用 StoryMem MI2V 测试跨镜头记忆是否放大、削弱或传播插件效果；
-5. 最后才增加其他兼容首帧/关键帧输入的视频模型。
-
-### 11.4 每个视频的主要统计量
-
-对每个可检测人脸帧计算：
-
-```text
-s_t = cosine(原始身份参考图, 第 t 帧人脸)
-```
-
-每个视频至少保存：
-
-- `first`：首帧身份分数；
-- `mean`：全视频平均身份分数；
-- `p10`：较差帧的第 10 百分位分数；
-- `last`：末帧身份分数；
-- `drift = last - first`：身份随时间的漂移；
-- `coverage`：成功检测到目标人脸的帧比例。
-
-每个 Control/Treatment 对计算：
-
-```text
-Δfirst = Treatment.first - Control.first
-Δmean  = Treatment.mean  - Control.mean
-Δp10   = Treatment.p10   - Control.p10
-Δlast  = Treatment.last  - Control.last
-```
-
-其中 `Δmean` 是首轮主指标，`Δp10` 和 `coverage` 用来防止平均值掩盖严重失败帧。
-
-### 11.5 质量约束与成功判定
-
-不能只要身份 cosine 提高就判定插件成功。建议将单个样本的成功条件定义为：
-
-```text
-身份指标提高
-+ 人脸可检测覆盖率不下降
-+ 没有明显五官畸变、边缘泄漏或锯齿
-+ 视频运动和闪烁没有显著恶化
-```
-
-除自动指标外，保存首帧、最差身份帧、末帧和固定间隔帧的对比网格，进行不知道 Off/On 标签的盲评。重点检查：
-
-- 眼睛、鼻子和嘴部是否被异常重绘；
-- 发际线、脸颊和下巴边缘是否突兀；
-- 红光等复杂光照是否过强传入五官；
-- 小脸是否出现模糊、锯齿或僵硬；
-- 插件是否改变了人物动作、服装或背景。
-
-### 11.6 汇总与统计
-
-- 以 Control/Treatment 成对差值为基础；
-- 按身份和镜头条件进行分层 bootstrap，报告均值及 95% 置信区间；
-- 同时报告提高、持平、下降的样本比例；
-- 分别报告小脸、大 yaw、复杂彩光等困难组，不能只报告总体均值；
-- 失败案例必须保留，不能只挑选可视化效果最好的结果。
-
-### 11.7 后续消融
-
-完整插件确认有效后，再分别关闭以下模块：
-
-- 3D 姿态标定；
-- 光影/色调迁移；
-- 精细人脸分割；
-- 收缩 mask；
-- 人脸尺寸自适应 mask/权重；
-- latent 轨迹注入。
-
-消融实验优先使用首轮中已经发现的困难样本，判断每个模块解决的具体问题，而不是重新挑选样本。
-
-## 12. 智能体端到端评测（待定）
-
-完整智能体的输入应是一句话或简短故事描述，输出是规划完成的多镜头视频，其评测范围包括：
-
-```text
-一句话输入
-→ 剧本拆分和镜头规划
-→ 角色、物体、场景及 3D 资产构建
-→ 首帧生成与身份插件调用
-→ 视频生成
-→ 质量检查、重试和结果汇总
-```
-
-这与当前插件评测不是同一个任务。EntityBench 已提供结构化 episode、逐镜头描述及实体计划，适合评测生成和一致性，但不能完整覆盖“一句话到剧本拆分”的智能体能力。因此：
-
-- 当前不使用 EntityBench 声称完成了完整智能体评测；
-- 智能体评测暂不进入当前主实验；
-- 后续需要另行确定一句话输入数据、剧本规划真值或人工评价标准；
-- 届时分别评价镜头拆分合理性、资产完整性、工具选择、失败检测、重试收益和最终视频质量；
-- 可以额外比较固定流程与智能体动态决策，但不得用插件 On/Off 实验代替智能体能力评测。
-
-## 13. run719 双首帧模型 pilot 状态（2026-09-22）
-
-同一个 12-shot 有序 EntityBench episode 已分别完成：
-
-- PuLID-FLUX v7 首帧 → Wan2.2；
-- SDXL/IP-Adapter v7 首帧 → Wan2.2。
-
-IP-Adapter 权威输出：
-
-`/root/autodl-tmp/movie/outputs/entitybench_wan22_ip_adapter_v7_s04_12/episode_00053051/`
-
-IP-Adapter 路线有 5 个镜头实际应用插件、3 个单人镜头因可靠性 gate 跳过、4 个多人镜头复用 Control。实际应用镜头的首帧身份 cosine 宏平均由 `0.118361` 提高到 `0.282797`，Δ=`+0.164436`；Wan 视频可检测帧 mean 宏平均由 `0.104617` 提高到 `0.219083`，Δ=`+0.114466`。把其余 7 个严格复用镜头按增益 0 纳入，完整 12-shot episode 的视频身份成对增益为 `+0.047694`。
-
-该正增益不能替代质量判断：`4:5` 的视频增益几乎消失，`5:2` 是低信号远景小脸，`6:1` 出现写实注入脸与插画场景的明显风格冲突。下一轮必须增加风格/OOD gate、视频传播衰减分析与盲评，不能只按 cosine 宣称成功。
-
-详细指标、公式和文件入口见 `LLM_HANDOFF.md` 第 16 节及 `episode_identity_summary.json`。
-
-## 14. run719 EntityBench Control vs v7 重评（2026-09-22）
-
-已对同一个完整有序 12-shot episode 的两条首帧路线执行成对重评：
-
-- PuLID-FLUX Control vs v7；
-- SDXL/IP-Adapter Control vs v7。
-
-本轮使用 EntityBench 开源 evaluator 的可本地运行部分。按当前约定，所有需要 VLM/大模型 API 的人脸属性、物体属性、场景细节、动作遵循和 LLM judge 指标均跳过；已完成：
-
-- VBench 六项视频质量指标；
-- GroundingDINO + CLIP 的角色、物体和地点出现率；
-- DINOv2 的跨镜头人脸/物体一致性；
-- DINOv2 的 MI2V 镜头边界连续性。
-
-结果入口：
-
-- run719 单 episode 的旧重复目录已清理；三 episode 历史汇总：
-  `outputs/entitybench_official_eval_pilot3/control_v7_summary.md`
-- 结构化汇总：`outputs/entitybench_official_eval_pilot3/control_v7_summary.json`
-- 当前单人主报告：`outputs/entitybench_reference_dino_pilot3/reference_dino_summary.md`
-- 官方格式输入软链接：`outputs/entitybench_official_eval_inputs/pilot3_*`
-
-核心结果：
-
-| 首帧路线 | 指标 | Control | v7 | Δ |
-|---|---|---:|---:|---:|
-| PuLID-FLUX | `cs_face` | 0.6349 | 0.6358 | +0.0009 |
-| PuLID-FLUX | `cs_transition_boundary` | 0.3499 | 0.3791 | +0.0292 |
-| PuLID-FLUX | VBench subject consistency | 0.9361 | 0.9373 | +0.0012 |
-| IP-Adapter | `cs_face` | 0.6454 | 0.6450 | -0.0004 |
-| IP-Adapter | `cs_transition_boundary` | 0.1786 | 0.1734 | -0.0052 |
-| IP-Adapter | VBench subject consistency | 0.9139 | 0.9133 | -0.0006 |
-
-两条路线的时序与主体质量整体近似中性；aesthetic quality 分别下降 `0.0043` 和 `0.0036`，imaging quality 分别提高 `0.4426` 和 `0.0964`。单 episode 的这些小差异不能视为显著结论。
-
-解释时必须区分两类指标：
-
-```text
-InsightFace 身份指标 = cosine(原始身份参考, 生成帧目标脸)
-EntityBench cs_face = 同一命名角色在不同生成镜头之间的 DINOv2 一致性
-```
-
-因此 `cs_face` 基本持平不否定此前插件相对原始身份参考的正增益；一个模型可以稳定地生成同一个错误身份，仍得到较高 `cs_face`。本轮只有 1 个 episode，且逐实体 GroundingDINO 检出集合在 PuLID Control/v7 间由 42/45 变为 39/45，逐实体差值只能作为诊断，不能单独当作身份结论。正式结论仍需扩展 episode/随机种子并执行盲评。
-
-评测器新增 `--skip_vlm`，该模式只跳过 API/VLM 项并保留上述本地指标；报告 manifest 会标记 `evaluation_scope=partial_without_vlm`。这不是完整 EntityBench 51 指标结果，也不得用于声称官方榜单成绩。
+具体数值以自动生成的 `EPISODE_TEST_RESULTS.md` 为准。
+
+## 9. 结果解释规则
+
+1. 主结果同时报告 InsightFace 与 DINOv2，不能只选择有利指标；
+2. 分别报告实际注入镜头和完整 episode（安全复用镜头按差值 0）；
+3. 保留所有负例和视觉失败，不按 Treatment 最终分数筛样本；
+4. 多人镜头不计入当前两条单角色路线的插件增益；
+5. 当前只有三个 episode、一个主要视频 seed，结论限定为 pilot；
+6. 下一阶段扩展 episode/seed 前先冻结代码提交、模型 revision 和输出 manifest。
+
+## 10. 下一阶段
+
+1. 完成 Qwen 三 episode 的视频与逐角色报告，分别分析单人、多人及安全回退覆盖率；
+2. 检查所有负增益角色，尤其是自动映射 margin 偏低的 run893 / 6:1 Leo；
+3. 再决定是否验证逐角色自适应强度和停止步，不能按 Treatment 结果事后删例；
+4. 增加风格/OOD gate 与局部关键点对齐可靠性；
+5. 扩大 episode 和随机种子，加入 bootstrap 置信区间；
+6. 在需要完整 EntityBench 时再配置 VLM/LLM API；智能体端到端评测另行设计。

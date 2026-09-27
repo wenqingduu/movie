@@ -333,13 +333,69 @@ VITE_API_BASE=http://你的后端地址:8000 npm run dev
 
 ## 9. 本地启动方式
 
-### 9.1 启动后端
+### 9.1 启动本地大模型服务
+
+当前本地模型放在：
+
+```text
+/root/autodl-tmp/movie/models/llm/Qwen2.5-14B-Instruct-AWQ
+```
+
+本地模型服务使用独立 vLLM 环境，不放进 movie 的 `.venv`：
+
+```text
+/root/autodl-tmp/llm-vllm-venv
+```
+
+启动本地 OpenAI-compatible 服务：
+
+```bash
+cd /root/autodl-tmp/movie
+bash scripts/start_local_llm.sh
+```
+
+服务地址：
+
+```text
+http://127.0.0.1:8001/v1
+```
+
+当前启动参数偏向本地调试稳定性：
+
+- `SERVED_MODEL_NAME=qwen-local`
+- `MAX_MODEL_LEN=4096`
+- `GPU_MEMORY_UTILIZATION=0.75`
+- `VLLM_USE_FLASHINFER_SAMPLER=0`
+- `--enforce-eager`
+
+其中 `VLLM_USE_FLASHINFER_SAMPLER=0` 是为了避开当前机器上 FlashInfer 采样 JIT 编译时的 `nvcc --compress-mode=size` 兼容问题。
+
+可以用下面命令验证：
+
+```bash
+curl -s http://127.0.0.1:8001/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer local' \
+  -d '{"model":"qwen-local","messages":[{"role":"user","content":"用一句话介绍你自己。"}],"max_tokens":80}'
+```
+
+### 9.2 启动后端
 
 ```bash
 cd /root/autodl-tmp/movie
 source .venv/bin/activate
 export PYTHONPATH=/root/autodl-tmp/movie:$PYTHONPATH
+export DASHSCOPE_BASE_URL=http://127.0.0.1:8001/v1
+export DASHSCOPE_API_KEY=local
+export MULTISHOT_QWEN_MODEL=qwen-local
 uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+```
+
+也可以直接使用脚本：
+
+```bash
+cd /root/autodl-tmp/movie
+bash scripts/start_local_backend.sh
 ```
 
 如果只在同一台机器本地访问，也可以：
@@ -354,7 +410,7 @@ uvicorn app.api.main:app --host 127.0.0.1 --port 8000
 http://127.0.0.1:8000/docs
 ```
 
-### 9.2 启动前端
+### 9.3 启动前端
 
 机器默认 `node` 可能比较老，先使用本机已有 Node 22：
 
@@ -380,7 +436,7 @@ http://127.0.0.1:3000
 
 如果前端跑在 AutoDL 上、浏览器在自己电脑上，就打开 AutoDL 映射出来的 `3000` 端口。
 
-### 9.3 当前不需要单独启动 worker
+### 9.4 当前不需要单独启动 worker
 
 当前本地 MVP 不需要单独启动 worker。任务执行器在 FastAPI 进程里：
 

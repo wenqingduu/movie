@@ -13,10 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.services import store
-from app.services.project_runner import OUTPUT_ROOT, project_dir, submit_assemble_job, submit_pipeline_job
+from app.workers.tasks import assemble_video_job, generate_videos_job, run_pipeline_job
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "projects"
 FRONTEND_ROOT = PROJECT_ROOT / "frontend"
 FRONTEND_DIST = FRONTEND_ROOT / "dist"
 
@@ -37,6 +38,10 @@ class AssembleRequest(BaseModel):
     reencode: bool = True
 
 
+def project_dir(project_id: str) -> Path:
+    return OUTPUT_ROOT / project_id
+
+
 def make_app() -> FastAPI:
     store.init_db()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -55,6 +60,7 @@ def make_app() -> FastAPI:
             "ok": True,
             "project_root": str(PROJECT_ROOT),
             "output_root": str(OUTPUT_ROOT),
+            "queue": "celery",
         }
 
     @app.post("/api/projects")
@@ -78,7 +84,7 @@ def make_app() -> FastAPI:
         )
         response = {"project": project, "job": None}
         if payload.autorun:
-            response["job"] = _start_job(project_id, "pipeline")
+            response["job"] = _enqueue_project_job(project_id, "pipeline", run_pipeline_job)
         return response
 
     @app.get("/api/projects")
@@ -100,15 +106,24 @@ def make_app() -> FastAPI:
         if payload.job_type != "pipeline":
             raise HTTPException(status_code=400, detail="unsupported job_type")
         _require_project(project_id)
-        return {"job": _start_job(project_id, "pipeline")}
+        return {"job": _enqueue_project_job(project_id, "pipeline", run_pipeline_job)}
+
+    @app.post("/api/projects/{project_id}/generate-videos")
+    def generate_videos(project_id: str):
+        _require_project(project_id)
+        return {"job": _enqueue_project_job(project_id, "wan_video", generate_videos_job)}
 
     @app.post("/api/projects/{project_id}/assemble")
     def assemble_project(project_id: str, payload: AssembleRequest):
         _require_project(project_id)
-        job_id = f"job_{uuid.uuid4().hex[:12]}"
-        job = store.insert_job(job_id=job_id, project_id=project_id, job_type="assemble")
-        submit_assemble_job(job_id, project_id, reencode=payload.reencode)
-        return {"job": job}
+        return {
+            "job": _enqueue_project_job(
+                project_id,
+                "assemble",
+                assemble_video_job,
+                payload.reencode,
+            )
+        }
 
     @app.get("/api/jobs")
     def list_jobs(project_id: str | None = None):
@@ -154,17 +169,29 @@ def make_app() -> FastAPI:
     return app
 
 
-def _start_job(project_id: str, job_type: str) -> dict:
-    latest = store.latest_job_for_project(project_id)
-    if latest and latest["status"] in {"queued", "running"}:
+def _enqueue_project_job(project_id: str, job_type: str, task, *task_args) -> dict:
+    active = store.active_job_for_project(project_id)
+    if active:
         raise HTTPException(
             status_code=409,
-            detail=f"project already has an active job: {latest['id']}",
+            detail=f"project already has an active job: {active['id']}",
         )
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = store.insert_job(job_id=job_id, project_id=project_id, job_type=job_type)
-    submit_pipeline_job(job_id, project_id)
-    return job
+    try:
+        result = task.apply_async(args=(job_id, project_id, *task_args), queue="gpu")
+        store.set_job_celery_task_id(job_id, result.id)
+    except Exception as exc:
+        store.update_job(
+            job_id,
+            status="failed",
+            progress=100,
+            message="Failed to enqueue Celery task",
+            error=str(exc),
+            finished=True,
+        )
+        raise HTTPException(status_code=503, detail=f"failed to enqueue task: {exc}") from exc
+    return store.get_job(job_id) or job
 
 
 def _require_project(project_id: str) -> dict:

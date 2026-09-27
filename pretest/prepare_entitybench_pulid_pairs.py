@@ -122,6 +122,14 @@ def run(args) -> dict:
     selected_keys = set(args.shot) if args.shot else None
     report_path = output_dir / "pulid_first_frame_report.json"
     wan_manifest_path = output_dir / "wan_manifest_single_character.json"
+    ordered_single_shots = [
+        shot for shot in _ordered_shots(episode) if len(shot["characters"]) == 1
+    ]
+    existing_report = (
+        json.loads(report_path.read_text(encoding="utf-8"))
+        if selected_keys is not None and report_path.is_file()
+        else {}
+    )
     report = {
         "kind": "entitybench_pulid_flux_first_frame_pairs",
         "episode_id": episode_id,
@@ -140,10 +148,24 @@ def run(args) -> dict:
             "harmonize_reference": True,
             "reference_conditioning": "target",
         },
-        "shots": [],
+        "shots": [
+            item for item in existing_report.get("shots", [])
+            if item.get("shot_key") not in (selected_keys or set())
+        ],
     }
-    identity_references = {}
-    wan_jobs = []
+    existing_manifest = (
+        json.loads(wan_manifest_path.read_text(encoding="utf-8"))
+        if selected_keys is not None and wan_manifest_path.is_file()
+        else {}
+    )
+    identity_references = dict(existing_manifest.get("identity_references", {}))
+    selected_job_prefixes = {
+        f"shot_{key.replace(':', '_')}_" for key in (selected_keys or set())
+    }
+    wan_jobs = [
+        item for item in existing_manifest.get("jobs", [])
+        if not any(item.get("job_id", "").startswith(prefix) for prefix in selected_job_prefixes)
+    ]
     env = os.environ.copy()
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -292,6 +314,20 @@ def run(args) -> dict:
         if record["status"].startswith("failed") and not args.continue_on_error:
             raise RuntimeError(f"{shot['shot_key']} failed; see {report_path}")
 
+    shot_order = {shot["shot_key"]: index for index, shot in enumerate(ordered_single_shots)}
+    report["shots"] = sorted(
+        report["shots"], key=lambda item: shot_order.get(item["shot_key"], 10**9)
+    )
+    missing = [
+        shot["shot_key"] for shot in ordered_single_shots
+        if shot["shot_key"] not in {item["shot_key"] for item in report["shots"]}
+    ]
+    if missing:
+        raise RuntimeError(
+            "Incremental report is missing unselected single-character shots; "
+            "rerun without --shot first: " + ", ".join(missing)
+        )
+    wan_jobs.sort(key=lambda item: (item["shot_index"], item["condition"] != "control"))
     report["successful_shots"] = sum(
         item["status"] in {"generated", "skipped_existing"} for item in report["shots"]
     )

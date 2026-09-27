@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -150,6 +151,74 @@ def assemble_videos(
         ]
     subprocess.run(command, check=True)
     return final_path
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def generate_shot_videos(
+    project_dir: str | Path,
+    *,
+    manifest_path: str | Path | None = None,
+    report_path: str | Path | None = None,
+    wan_root: str | Path | None = None,
+    checkpoint_dir: str | Path | None = None,
+    size: str | None = None,
+    frame_num: int | None = None,
+    sample_steps: int | None = None,
+    sample_shift: float | None = None,
+    guide_scale: float | None = None,
+    base_seed: int | None = None,
+    limit_jobs: int | None = None,
+    overwrite: bool | None = None,
+    continue_on_error: bool | None = None,
+) -> dict[str, Any]:
+    """Generate shot videos for a project using the existing Wan manifest runner."""
+
+    project_path = Path(project_dir)
+    manifest_file = Path(manifest_path) if manifest_path else project_path / "wan_manifest_product.json"
+    report_file = Path(report_path) if report_path else project_path / "wan_video_report.json"
+
+    if not manifest_file.is_file():
+        raise FileNotFoundError(f"Missing Wan manifest: {manifest_file}")
+
+    from pretest.run_wan22_i2v_manifest import run as run_wan_manifest
+
+    args = argparse.Namespace(
+        manifest=str(manifest_file),
+        report=str(report_file),
+        wan_root=str(wan_root or os.getenv("WAN_ROOT", "/root/autodl-tmp/Wan2.2")),
+        wan_commit=os.getenv("WAN_COMMIT", "42bf4cfaa384bc21833865abc2f9e6c0e67233dc"),
+        checkpoint_dir=str(
+            checkpoint_dir
+            or os.getenv(
+                "WAN_CHECKPOINT_DIR",
+                str(Path(__file__).resolve().parents[1] / "models/video/Wan2.2-TI2V-5B"),
+            )
+        ),
+        size=size or os.getenv("WAN_SIZE", "1280*704"),
+        frame_num=int(frame_num if frame_num is not None else os.getenv("WAN_FRAME_NUM", "49")),
+        sample_steps=int(
+            sample_steps if sample_steps is not None else os.getenv("WAN_SAMPLE_STEPS", "50")
+        ),
+        sample_shift=float(
+            sample_shift if sample_shift is not None else os.getenv("WAN_SAMPLE_SHIFT", "5.0")
+        ),
+        guide_scale=float(
+            guide_scale if guide_scale is not None else os.getenv("WAN_GUIDE_SCALE", "5.0")
+        ),
+        base_seed=int(base_seed if base_seed is not None else os.getenv("WAN_BASE_SEED", "719000")),
+        limit_jobs=limit_jobs
+        if limit_jobs is not None
+        else (int(os.getenv("WAN_LIMIT_JOBS")) if os.getenv("WAN_LIMIT_JOBS") else None),
+        overwrite=_env_bool("WAN_OVERWRITE") if overwrite is None else overwrite,
+        continue_on_error=_env_bool("WAN_CONTINUE_ON_ERROR") if continue_on_error is None else continue_on_error,
+    )
+    return run_wan_manifest(args)
 
 
 def run_story_project(

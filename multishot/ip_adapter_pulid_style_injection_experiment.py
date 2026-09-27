@@ -27,6 +27,10 @@ from multishot.ip_adapter_experiment_utils import (
     _write_json,
 )
 from multishot.mcp_asset_server import _prepare_reference_face_crop, _render_3d_face_reference
+from multishot.prompt_injection_safety import (
+    PROMPT_EYE_CLOSURE_SKIP_REASON,
+    prompt_requests_closed_eyes,
+)
 
 
 def _write_conservative_face_mask(
@@ -246,13 +250,17 @@ def run(args, *, backend=None, app=None) -> dict:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     reference_path = args.reference.resolve()
-    continuous_render = args.continuous_render.resolve()
+    continuous_render = (
+        args.continuous_render.resolve() if args.continuous_render else None
+    )
     gaussian_model = args.gaussian_model.resolve() if args.gaussian_model else None
     if not reference_path.exists():
         raise FileNotFoundError(f"Reference portrait not found: {reference_path}")
     if gaussian_model and not gaussian_model.exists():
         raise FileNotFoundError(f"FaceLift Gaussian model not found: {gaussian_model}")
-    if not gaussian_model and not continuous_render.exists():
+    if not gaussian_model and (
+        continuous_render is None or not continuous_render.exists()
+    ):
         raise FileNotFoundError(f"Cached continuous FaceLift render not found: {continuous_render}")
 
     os.environ["MULTISHOT_INSIGHTFACE_MODEL_NAME"] = "antelopev2"
@@ -416,6 +424,9 @@ def run(args, *, backend=None, app=None) -> dict:
         _write_json(output / "result.json", result)
         return result
 
+    if prompt_requests_closed_eyes(args.prompt):
+        return finish_with_control_reuse(PROMPT_EYE_CLOSURE_SKIP_REASON)
+
     if detected_face is None and args.skip_unreliable_face:
         return finish_with_control_reuse(
             f"no reliable face detected in {len(detection_failures)} attempts "
@@ -461,7 +472,13 @@ def run(args, *, backend=None, app=None) -> dict:
             target_face["face_bbox"],
         )
         if not rendered_path:
-            raise RuntimeError("FaceLift continuous Gaussian pose render failed")
+            if args.skip_unreliable_face:
+                return finish_with_control_reuse(
+                    "FaceLift continuous Gaussian render failed or its round-trip pose validation was rejected"
+                )
+            raise RuntimeError(
+                "FaceLift continuous Gaussian render failed or its round-trip pose validation was rejected"
+            )
         shutil.copy2(rendered_path, copied_render)
     target_mask = _write_conservative_face_mask(
         shared_path,
@@ -653,13 +670,8 @@ def parse_args():
     parser.add_argument(
         "--continuous-render",
         type=Path,
-        default=(
-            PROJECT_ROOT
-            / "experiment_output"
-            / "ip_adapter_small_yaw_harmonized_soft_context_v4_04"
-            / "input"
-            / "rendered_3d_face.png"
-        ),
+        default=None,
+        help="Cached FaceLift render; required only when --gaussian-model is omitted.",
     )
     parser.add_argument(
         "--output",

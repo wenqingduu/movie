@@ -1,13 +1,10 @@
 """Generate text-only FLUX Control frames for selected multi-character fallbacks.
 
-These are shots for which the current evaluation does not have complete
-per-character identity/Gaussian assets or a reliable assignment.  Each Control
-follows the same PuLID-FLUX execution path as the multi-face prototype,
-including a valid identity embedding, but fixes its global identity weight to
-zero and applies no 3D residual.  Treatment reuses Control so a complete
-ordered episode does not pretend that the plugin was applied.  This fallback
-does not imply that the multi-face injection algorithm itself is unsupported;
-shot 4:2 is evaluated through ``pulid_flux_multi_face_experiment.py``.
+The current PuLID-FLUX route does not bind multiple identity references to
+multiple generated people.  Each multi-character Control therefore follows
+the same FLUX execution path with global identity weight fixed to zero and no
+3D residual.  Treatment reuses Control so a complete ordered episode does not
+pretend that the single-character plugin was applied.
 """
 
 from __future__ import annotations

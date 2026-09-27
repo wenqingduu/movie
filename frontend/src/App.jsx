@@ -234,6 +234,8 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
     try {
       if (action === "run") {
         await api.runProject(projectId);
+      } else if (action === "generateVideos") {
+        await api.generateVideos(projectId);
       } else if (action === "assemble") {
         await api.assembleProject(projectId);
       }
@@ -286,6 +288,9 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
             </button>
             <button onClick={() => runAction("run")} disabled={Boolean(busyAction)}>
               {busyAction === "run" ? "启动中..." : "启动生成"}
+            </button>
+            <button onClick={() => runAction("generateVideos")} disabled={Boolean(busyAction)}>
+              {busyAction === "generateVideos" ? "提交中..." : "生成分镜视频"}
             </button>
             <button onClick={() => runAction("assemble")} disabled={Boolean(busyAction)}>
               {busyAction === "assemble" ? "拼接中..." : "拼接视频"}

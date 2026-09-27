@@ -617,9 +617,16 @@ def _pose_to_facelift_camera(face_pose: dict, image_size: int):
 
     import numpy as np
 
-    yaw = max(-55.0, min(55.0, _face_pose_value(face_pose, "yaw")))
-    pitch = max(-35.0, min(35.0, _face_pose_value(face_pose, "pitch")))
-    roll = max(-45.0, min(45.0, _face_pose_value(face_pose, "roll")))
+    # Keep the safety limits explicit and configurable.  The former hard-coded
+    # 55/35/45 degree limits silently clipped calibrated camera poses for
+    # compound profile views (large yaw + pitch + roll), even when the
+    # calibration itself had found a valid camera just outside that box.
+    max_yaw = float(os.getenv("MULTISHOT_FACELIFT_MAX_CAMERA_YAW", "70"))
+    max_pitch = float(os.getenv("MULTISHOT_FACELIFT_MAX_CAMERA_PITCH", "45"))
+    max_roll = float(os.getenv("MULTISHOT_FACELIFT_MAX_CAMERA_ROLL", "60"))
+    yaw = max(-max_yaw, min(max_yaw, _face_pose_value(face_pose, "yaw")))
+    pitch = max(-max_pitch, min(max_pitch, _face_pose_value(face_pose, "pitch")))
+    roll = max(-max_roll, min(max_roll, _face_pose_value(face_pose, "roll")))
     radius = float(os.getenv("MULTISHOT_FACELIFT_RENDER_RADIUS", "2.7"))
     hfov = float(os.getenv("MULTISHOT_FACELIFT_RENDER_HFOV", "50"))
     yaw_sign = float(os.getenv("MULTISHOT_FACELIFT_YAW_SIGN", "-1"))
@@ -658,8 +665,82 @@ def _pose_to_facelift_camera(face_pose: dict, image_size: int):
         "roll": round(roll, 4),
         "yaw_sign": yaw_sign,
         "roll_sign": roll_sign,
+        "camera_limits": {
+            "yaw": max_yaw,
+            "pitch": max_pitch,
+            "roll": max_roll,
+        },
         "azimuth": round(float(np.rad2deg(azim)), 4),
         "elevation": round(float(np.rad2deg(elev)), 4),
+    }
+
+
+def _validate_facelift_render_pose(render_path: Path, desired_pose: dict) -> dict:
+    """Measure the rendered face with the same pose estimator used on the target.
+
+    Calibration is an inverse model, so its output must still be checked after
+    rasterization.  This prevents an extrapolated affine fit or a renderer clamp
+    from silently feeding a badly oriented 3D face into the diffusion trajectory.
+    """
+
+    thresholds = {
+        "pitch": float(os.getenv("MULTISHOT_FACELIFT_MAX_PITCH_ERROR", "12")),
+        "yaw": float(os.getenv("MULTISHOT_FACELIFT_MAX_YAW_ERROR", "12")),
+        "roll": float(os.getenv("MULTISHOT_FACELIFT_MAX_ROLL_ERROR", "15")),
+    }
+    minimum_confidence = float(
+        os.getenv("MULTISHOT_FACELIFT_MIN_RENDER_FACE_CONFIDENCE", "0.5")
+    )
+    try:
+        from multishot.face_analysis_backend import get_face_backend
+
+        faces = get_face_backend().analyze(str(render_path))
+    except Exception as exc:
+        return {
+            "accepted": False,
+            "reason": f"pose_estimator_failed: {exc}",
+            "desired_pose": desired_pose,
+            "thresholds_degrees": thresholds,
+        }
+    if not faces:
+        return {
+            "accepted": False,
+            "reason": "no_face_detected_in_render",
+            "desired_pose": desired_pose,
+            "thresholds_degrees": thresholds,
+        }
+
+    face = max(
+        faces,
+        key=lambda item: (
+            (item["face_bbox"][2] - item["face_bbox"][0])
+            * (item["face_bbox"][3] - item["face_bbox"][1])
+        ),
+    )
+    detected = {
+        axis: _face_pose_value(face.get("pose", {}), axis)
+        for axis in ("pitch", "yaw", "roll")
+    }
+    errors = {
+        axis: abs(detected[axis] - _face_pose_value(desired_pose, axis))
+        for axis in ("pitch", "yaw", "roll")
+    }
+    confidence = float(face.get("face_confidence", 0.0) or 0.0)
+    accepted = confidence >= minimum_confidence and all(
+        errors[axis] <= thresholds[axis] for axis in thresholds
+    )
+    return {
+        "accepted": accepted,
+        "reason": None if accepted else "rendered_pose_error_exceeds_threshold",
+        "desired_pose": {
+            axis: _face_pose_value(desired_pose, axis)
+            for axis in ("pitch", "yaw", "roll")
+        },
+        "detected_pose": detected,
+        "absolute_error_degrees": errors,
+        "thresholds_degrees": thresholds,
+        "face_confidence": confidence,
+        "minimum_face_confidence": minimum_confidence,
     }
 
 
@@ -715,6 +796,13 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
     render_path = render_dir / f"{tag}.png"
     meta_path = render_dir / f"{tag}.meta.json"
     if render_path.exists() and meta_path.exists():
+        try:
+            cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            pose_validation = cached_meta.get("pose_validation")
+            if pose_validation and not pose_validation.get("accepted", False):
+                return None
+        except Exception:
+            pass
         return str(render_path)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -730,6 +818,12 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
         image = rendered.detach().clamp(0, 1).cpu().permute(1, 2, 0).numpy()
         image = (image * 255.0).round().astype(np.uint8)
         Image.fromarray(image).save(render_path)
+        validate_pose = os.getenv("MULTISHOT_FACELIFT_VALIDATE_RENDER_POSE", "1") != "0"
+        pose_validation = (
+            _validate_facelift_render_pose(render_path, face_pose)
+            if validate_pose
+            else {"accepted": True, "reason": "validation_disabled"}
+        )
         meta = {
             "source_model_path": str(model_path),
             "render_image": str(render_path),
@@ -740,8 +834,15 @@ def _render_3d_face_reference(face_3d: dict, face_pose: dict, target_face_bbox: 
             "target_face_bbox": [round(float(v), 2) for v in target_face_bbox] if target_face_bbox else None,
             "render_size": image_size,
             "renderer": "FaceLift GaussianModel/render_opencv_cam",
+            "pose_validation": pose_validation,
         }
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not pose_validation.get("accepted", False):
+            print(
+                "FaceLift pose render rejected by round-trip validation: "
+                f"{json.dumps(pose_validation, ensure_ascii=False)}"
+            )
+            return None
         return str(render_path)
     except Exception as exc:
         print(f"FaceLift pose render failed; falling back to multiview image: {exc}")

@@ -70,6 +70,25 @@ def run(args) -> dict:
     manifest_path = Path(args.manifest).resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     jobs = _validate_manifest(manifest, manifest_path)
+    if args.job_id:
+        requested = set(args.job_id)
+        available = {job["job_id"] for job in jobs}
+        missing = sorted(requested - available)
+        if missing:
+            raise ValueError(f"Requested job_id values are missing: {missing}")
+        jobs = [job for job in jobs if job["job_id"] in requested]
+        selected = {job["job_id"] for job in jobs}
+        unresolved_reuse = [
+            (job["job_id"], job["reuse_video_from"])
+            for job in jobs
+            if job.get("reuse_video_from")
+            and job["reuse_video_from"] not in selected
+        ]
+        if unresolved_reuse:
+            raise ValueError(
+                "Selected reuse jobs require their source jobs too: "
+                f"{unresolved_reuse}"
+            )
     if args.limit_jobs is not None:
         jobs = jobs[: args.limit_jobs]
     if args.frame_num < 1 or (args.frame_num - 1) % 4:
@@ -258,6 +277,11 @@ def parse_args():
     parser.add_argument("--guide-scale", type=float, default=5.0)
     parser.add_argument("--base-seed", type=int, default=719000)
     parser.add_argument("--limit-jobs", type=int, default=None)
+    parser.add_argument(
+        "--job-id",
+        action="append",
+        help="Run only this job_id; repeat for multiple jobs, including reuse sources.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     return parser.parse_args()

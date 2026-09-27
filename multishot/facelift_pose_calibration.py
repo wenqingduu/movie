@@ -166,6 +166,11 @@ def run(args) -> Path:
         samples = json.loads(samples_path.read_text(encoding="utf-8"))
     else:
         samples = []
+        if args.base_samples:
+            base_samples_path = args.base_samples.resolve()
+            if not base_samples_path.is_file():
+                raise FileNotFoundError(base_samples_path)
+            samples.extend(json.loads(base_samples_path.read_text(encoding="utf-8")))
         for yaw in args.yaw_values:
             for pitch in args.pitch_values:
                 for roll in args.roll_values:
@@ -192,31 +197,62 @@ def run(args) -> Path:
     near_frontal = [
         sample for sample in valid if abs(float(sample["camera_pose"]["yaw"])) <= 20.0
     ]
-    positive = [sample for sample in valid if sample["camera_pose"]["yaw"] >= 35.0]
-    negative = [sample for sample in valid if sample["camera_pose"]["yaw"] <= -35.0]
+    positive = [
+        sample
+        for sample in valid
+        if 35.0 <= float(sample["camera_pose"]["yaw"]) < 55.0
+    ]
+    negative = [
+        sample
+        for sample in valid
+        if -55.0 < float(sample["camera_pose"]["yaw"]) <= -35.0
+    ]
+    positive_extreme = [
+        sample for sample in valid if float(sample["camera_pose"]["yaw"]) >= 55.0
+    ]
+    negative_extreme = [
+        sample for sample in valid if float(sample["camera_pose"]["yaw"]) <= -55.0
+    ]
     if len(near_frontal) < 8 or len(positive) < 8 or len(negative) < 8:
         raise RuntimeError(
             "Insufficient detected calibration samples: "
-            f"near_frontal={len(near_frontal)}, positive={len(positive)}, negative={len(negative)}"
+            f"near_frontal={len(near_frontal)}, positive={len(positive)}, negative={len(negative)}, "
+            f"positive_extreme={len(positive_extreme)}, negative_extreme={len(negative_extreme)}"
         )
 
     profiles = [
         _fit_profile(
-            "near_frontal_v2",
+            "near_frontal_v3",
             near_frontal,
-            {"pitch": [-35.0, 35.0], "yaw": [-34.999, 34.999], "roll": [-45.0, 45.0]},
+            {"pitch": [-45.0, 45.0], "yaw": [-34.999, 34.999], "roll": [-55.0, 55.0]},
         ),
         _fit_profile(
-            "positive_high_yaw_v1",
+            "positive_high_yaw_v2",
             positive,
-            {"pitch": [-20.0, 30.0], "yaw": [35.0, 65.0], "roll": [-30.0, 35.0]},
+            {"pitch": [-45.0, 55.0], "yaw": [35.0, 64.999], "roll": [-60.0, 60.0]},
         ),
         _fit_profile(
-            "negative_high_yaw_v1",
+            "negative_high_yaw_v2",
             negative,
-            {"pitch": [-20.0, 30.0], "yaw": [-65.0, -35.0], "roll": [-30.0, 35.0]},
+            {"pitch": [-45.0, 55.0], "yaw": [-64.999, -35.0], "roll": [-60.0, 60.0]},
         ),
     ]
+    if len(positive_extreme) >= 8:
+        profiles.append(
+            _fit_profile(
+                "positive_extreme_compound_v1",
+                positive_extreme,
+                {"pitch": [-70.0, 70.0], "yaw": [65.0, 85.0], "roll": [-85.0, 85.0]},
+            )
+        )
+    if len(negative_extreme) >= 8:
+        profiles.append(
+            _fit_profile(
+                "negative_extreme_compound_v1",
+                negative_extreme,
+                {"pitch": [-70.0, 70.0], "yaw": [-85.0, -65.0], "roll": [-85.0, 85.0]},
+            )
+        )
 
     validation = []
     for index, target in enumerate(args.validation_pose):
@@ -247,8 +283,8 @@ def run(args) -> Path:
         })
 
     calibration = {
-        "version": 1,
-        "method": "local_affine_inverse_of_insightface_measured_facelift_camera_grid",
+        "version": 2,
+        "method": "piecewise_affine_inverse_of_insightface_measured_facelift_camera_grid",
         "gaussian_model": str(model_path),
         "gaussian_model_sha256": _sha256(model_path),
         "image_size": args.image_size,
@@ -297,13 +333,24 @@ def parse_args():
     parser.add_argument("--torch-threads", type=int, default=4)
     parser.add_argument("--reuse-samples", action="store_true")
     parser.add_argument(
-        "--pitch-values", type=float, nargs="+", default=[-25.0, -10.0, 5.0, 20.0]
+        "--base-samples",
+        type=Path,
+        help="Reuse an existing calibration sample list and append the requested camera grid.",
+    )
+    parser.add_argument(
+        "--pitch-values",
+        type=float,
+        nargs="+",
+        default=[-25.0, -10.0, 5.0, 10.0, 15.0, 20.0, 30.0],
     )
     parser.add_argument(
         "--yaw-values",
         type=float,
         nargs="+",
-        default=[-55.0, -47.5, -40.0, -20.0, 0.0, 20.0, 40.0, 47.5, 55.0],
+        default=[
+            -65.0, -60.0, -55.0, -47.5, -40.0, -20.0, 0.0,
+            20.0, 40.0, 47.5, 55.0, 60.0, 65.0,
+        ],
     )
     parser.add_argument("--roll-values", type=float, nargs="+", default=[-20.0, 0.0, 20.0])
     parser.add_argument(

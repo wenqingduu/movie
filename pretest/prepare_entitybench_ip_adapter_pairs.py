@@ -234,6 +234,7 @@ def run(args) -> dict:
     episode = json.loads(episode_path.read_text(encoding="utf-8"))
     episode_id = episode_path.stem
     selected = set(args.shot) if args.shot else None
+    all_shots = _ordered_shots(episode)
     shots = [
         item for item in _ordered_shots(episode)
         if selected is None or item["shot_key"] in selected
@@ -243,7 +244,16 @@ def run(args) -> dict:
     report_path = output_dir / "ip_adapter_first_frame_report.json"
     full_manifest_path = output_dir / "wan_manifest_full_episode.json"
     single_manifest_path = output_dir / "wan_manifest_single_character.json"
-    records: dict[str, dict] = {}
+    existing_report = (
+        json.loads(report_path.read_text(encoding="utf-8"))
+        if selected is not None and report_path.is_file()
+        else {}
+    )
+    records: dict[str, dict] = {
+        item["shot_key"]: item
+        for item in existing_report.get("shots", [])
+        if item.get("shot_key") not in (selected or set())
+    }
     identity_references = {}
 
     env = os.environ.copy()
@@ -297,11 +307,7 @@ def run(args) -> dict:
                 shared_face_app = _face_app()
             pair_args = Namespace(
                 reference=reference,
-                continuous_render=(
-                    PROJECT_ROOT / "experiment_output"
-                    / "ip_adapter_small_yaw_harmonized_soft_context_v4_04"
-                    / "input" / "rendered_3d_face.png"
-                ),
+                continuous_render=None,
                 output=pair_dir,
                 gaussian_model=gaussian_model,
                 prompt=_sdxl_prompt(shot),
@@ -369,11 +375,20 @@ def run(args) -> dict:
         torch.cuda.empty_cache()
     records.update(_generate_text_only_controls(fallback_shots, output_dir, args))
 
+    missing = [item["shot_key"] for item in all_shots if item["shot_key"] not in records]
+    if missing:
+        raise RuntimeError(
+            "Incremental report is missing unselected shots; rerun without --shot first: "
+            + ", ".join(missing)
+        )
+
     jobs = []
     single_jobs = []
-    for shot in shots:
+    for shot in all_shots:
         record = records[shot["shot_key"]]
         is_single = len(shot["characters"]) == 1
+        if is_single and record.get("target_character"):
+            identity_references[record["target_character"]] = record["reference_image"]
         plugin_applied = is_single and not record.get("plugin_skipped", False)
         pair = _job_pair(
             episode_id=episode_id,
@@ -410,19 +425,23 @@ def run(args) -> dict:
             "multi_character_policy": "text-only SDXL Control reused",
             "prompt_adaptation": "official action_description moved before entity definitions for CLIP-77",
         },
-        "shots": [records[item["shot_key"]] for item in shots],
-        "shot_count": len(shots),
-        "single_character_shot_count": len(single_shots),
-        "fallback_shot_count": len(fallback_shots),
+        "shots": [records[item["shot_key"]] for item in all_shots],
+        "shot_count": len(all_shots),
+        "single_character_shot_count": sum(
+            len(item["characters"]) == 1 for item in all_shots
+        ),
+        "fallback_shot_count": sum(
+            len(item["characters"]) != 1 for item in all_shots
+        ),
         "injected_shots": sum(
             len(item["characters"]) == 1
             and not records[item["shot_key"]].get("plugin_skipped", False)
-            for item in shots
+            for item in all_shots
         ),
         "control_reuse_shots": sum(
             len(item["characters"]) != 1
             or records[item["shot_key"]].get("plugin_skipped", False)
-            for item in shots
+            for item in all_shots
         ),
         "wan_job_count": len(jobs),
     }

@@ -6,5 +6,8 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 3000,
+    allowedHosts: [
+      "u388080-ybu5-9801affa.westd.seetacloud.com",
+    ],
   },
 });

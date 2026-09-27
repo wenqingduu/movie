@@ -30,7 +30,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument(
         "--treatment-conditions",
-        default="treatment,color_safe_core",
+        default="treatment",
         help="Comma-separated manifest conditions accepted as v7 Treatment.",
     )
     parser.add_argument(

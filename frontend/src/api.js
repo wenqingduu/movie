@@ -43,6 +43,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ job_type: "pipeline" }),
     }),
+  generateVideos: (projectId) =>
+    request(`/api/projects/${projectId}/generate-videos`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   assembleProject: (projectId) =>
     request(`/api/projects/${projectId}/assemble`, {
       method: "POST",

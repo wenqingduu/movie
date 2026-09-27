@@ -44,6 +44,11 @@ from flux.util import (  # noqa: E402
 from pulid.pipeline_flux import PuLIDPipeline  # noqa: E402
 from pulid.utils import resize_numpy_image_long  # noqa: E402
 
+from multishot.prompt_injection_safety import (  # noqa: E402
+    PROMPT_EYE_CLOSURE_SKIP_REASON,
+    prompt_requests_closed_eyes,
+)
+
 
 DEFAULT_PROMPT = (
     "cinematic medium close-up portrait of a man standing beneath warm neon lights "
@@ -1340,6 +1345,9 @@ def run(args) -> Path:
             )
             return output
 
+        if prompt_requests_closed_eyes(args.prompt):
+            return finish_with_control_reuse(PROMPT_EYE_CLOSURE_SKIP_REASON)
+
         if target_face is None:
             return finish_with_control_reuse(
                 f"no reliable face detected in {len(detection_failures)} attempts "
@@ -1404,8 +1412,15 @@ def run(args) -> Path:
                 target_bbox,
             )
             if not rendered_path:
+                if args.skip_unreliable_face:
+                    return finish_with_control_reuse(
+                        "Continuous FaceLift Gaussian render failed or its round-trip pose validation was rejected",
+                        face=target_face,
+                        bbox=target_bbox,
+                    )
                 raise RuntimeError(
-                    "Continuous FaceLift Gaussian rendering failed; discrete-view fallback is disabled"
+                    "Continuous FaceLift Gaussian render failed or its round-trip pose validation was rejected; "
+                    "discrete-view fallback is disabled"
                 )
             rendered_reference = Image.open(rendered_path).convert("RGB")
             render_meta_path = Path(rendered_path).with_suffix(".meta.json")
