@@ -71,7 +71,6 @@ def build_wan_manifest(
             {
                 "job_id": f"{shot_id}_video",
                 "shot_id": shot_id,
-                "shot_index": index,
                 "subscript_id": shot.get("subscript_id"),
                 "character_ids": shot.get("character_ids", []),
                 "input_image": str(Path(first_frame).resolve()),
@@ -225,7 +224,7 @@ def run_story_project(
     story: str,
     project_dir: str | Path,
     *,
-    generation_model: str = "juggernaut-xl-v9",
+    backend: str = "qwen_image21",
     base_seed: int = 1000,
     write_manifest: bool = True,
 ) -> dict[str, Any]:
@@ -241,7 +240,7 @@ def run_story_project(
         {
             "story": story,
             "project_dir": str(project_path),
-            "generation_model": generation_model,
+            "backend": backend,
         }
     )
 
@@ -253,6 +252,32 @@ def run_story_project(
     if write_manifest:
         manifest_path = build_wan_manifest(project_path, base_seed=base_seed)
         result["wan_manifest_path"] = str(manifest_path)
+    return result
+
+
+def run_full_project(
+    story: str,
+    project_dir: str | Path,
+    *,
+    backend: str = "qwen_image21",
+    base_seed: int = 1000,
+    reencode: bool = True,
+) -> dict[str, Any]:
+    """Run the full product chain from story to final assembled video."""
+
+    result = run_story_project(
+        story,
+        project_dir,
+        backend=backend,
+        base_seed=base_seed,
+        write_manifest=True,
+    )
+    video_report = generate_shot_videos(project_dir)
+    final_video = assemble_videos(project_dir, reencode=reencode)
+    result["wan_video_report_path"] = str(Path(project_dir) / "wan_video_report.json")
+    result["completed_video_jobs"] = video_report.get("completed_jobs")
+    result["failed_video_jobs"] = video_report.get("failed_jobs")
+    result["final_video"] = str(final_video)
     return result
 
 
@@ -268,9 +293,9 @@ def parse_args() -> argparse.Namespace:
         help="Output project directory.",
     )
     parser.add_argument(
-        "--generation-model",
-        default="juggernaut-xl-v9",
-        help="First-frame image generation model configured in diffusion_backend.py.",
+        "--backend",
+        default="qwen_image21",
+        help="First-frame backend: qwen_image21, pulid_flux, ip_adapter, or a legacy diffusion model.",
     )
     parser.add_argument("--base-seed", type=int, default=1000)
     parser.add_argument(
@@ -312,7 +337,7 @@ def main() -> None:
     result = run_story_project(
         story,
         project_dir,
-        generation_model=args.generation_model,
+        backend=args.backend,
         base_seed=args.base_seed,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

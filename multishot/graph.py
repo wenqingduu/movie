@@ -30,7 +30,7 @@ class MultiShotState(TypedDict, total=False):
     asset_index: dict[str, Any]
     asset_index_path: str
     face_3d_assets: dict[str, Any]
-    generation_model: str
+    backend: str
 
 
 def build_multishot_graph(model=None):
@@ -117,6 +117,7 @@ def run_demo():
     state = graph.invoke({
         "story": story,
         "project_dir": output_dir,
+        "backend": "qwen_image21",
     })
 
     print("project_plan:", state["project_plan_path"])

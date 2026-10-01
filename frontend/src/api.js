@@ -41,19 +41,9 @@ export const api = {
   runProject: (projectId) =>
     request(`/api/projects/${projectId}/run`, {
       method: "POST",
-      body: JSON.stringify({ job_type: "pipeline" }),
-    }),
-  generateVideos: (projectId) =>
-    request(`/api/projects/${projectId}/generate-videos`, {
-      method: "POST",
       body: JSON.stringify({}),
     }),
-  assembleProject: (projectId) =>
-    request(`/api/projects/${projectId}/assemble`, {
-      method: "POST",
-      body: JSON.stringify({ reencode: true }),
-    }),
-  getJob: (jobId) => request(`/api/jobs/${jobId}`),
+  getShots: (projectId) => request(`/api/projects/${projectId}/shots`),
   getProjectPlan: (projectId) => request(`/api/projects/${projectId}/project-plan`),
   getAssetIndex: (projectId) => request(`/api/projects/${projectId}/asset-index`),
   getWanManifest: (projectId) => request(`/api/projects/${projectId}/wan-manifest`),

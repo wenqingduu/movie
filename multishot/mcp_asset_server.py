@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from .diffusion_backend import get_diffusion_backend
 from .face_analysis_backend import cosine_similarity, get_face_backend
 from .facelift_backend import build_facelift_asset
+from .first_frame_backends import generate_first_frame
 
 
 # MCP server 通过环境变量拿当前项目目录。
@@ -1869,7 +1870,7 @@ def generate_shot_first_frame(
     subscript_id: str,
     character_ids: list[str],
     first_frame_prompt: str,
-    generation_model: str = "juggernaut-xl-v9",
+    backend: str = "qwen_image21",
 ):
     """生成单个 shot 的首帧。
 
@@ -1877,7 +1878,7 @@ def generate_shot_first_frame(
     subscript_id: 该 shot 所属场景子剧本 id，用来检索场景背景资产。
     character_ids: 该 shot 中出现的人物 id，用来检索人物参考图和 3D 人脸资产。
     first_frame_prompt: 首帧生成提示词。
-    generation_model: 图像生成模型名称，便于后续比较不同开源模型。
+    backend: 首帧生成路线，例如 qwen_image21 / pulid_flux / ip_adapter。
     """
 
     index = _load_index()
@@ -1887,13 +1888,15 @@ def generate_shot_first_frame(
         for character_id in character_ids
     }
 
-    result = _diffusion_first_frame(
+    result = generate_first_frame(
         shot_id=shot_id,
         first_frame_prompt=first_frame_prompt,
-        generation_model=generation_model,
+        backend=backend,
         scene_asset=scene_asset,
         character_assets=character_assets,
         character_ids=character_ids,
+        project_dir=_project_dir(),
+        legacy_generator=_diffusion_first_frame,
     )
 
     return {

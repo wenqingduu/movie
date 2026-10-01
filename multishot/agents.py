@@ -314,7 +314,7 @@ class ShotFirstFrameAgent:
 
     async def arun(self, state: dict):
         project_dir = Path(state["project_dir"])
-        generation_model = state.get("generation_model", "juggernaut-xl-v9")
+        backend = state.get("backend", "qwen_image21")
 
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
@@ -334,12 +334,12 @@ class ShotFirstFrameAgent:
                 "subscript_id": shot["subscript_id"],
                 "character_ids": shot["character_ids"],
                 "first_frame_prompt": shot["first_frame_prompt"],
-                "generation_model": generation_model,
+                "backend": backend,
             })
             result = _tool_result(result)
             shot["first_frame_path"] = result["frame_path"]
             shot["first_frame_denoise_log_path"] = result["denoise_log_path"]
-            shot["first_frame_generation_model"] = generation_model
+            shot["first_frame_backend"] = backend
 
         project_plan_path = project_dir / "project_plan.json"
         project_plan_path.write_text(

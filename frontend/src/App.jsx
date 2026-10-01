@@ -26,9 +26,8 @@ function Section({ title, children, actions }) {
 }
 
 function ProjectForm({ onCreated }) {
-  const [title, setTitle] = useState("");
   const [story, setStory] = useState(SAMPLE_STORY);
-  const [autorun, setAutorun] = useState(false);
+  const [backend, setBackend] = useState("qwen_image21");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,13 +37,10 @@ function ProjectForm({ onCreated }) {
     setSubmitting(true);
     try {
       const result = await api.createProject({
-        title: title.trim() || null,
         story,
-        autorun,
+        backend,
       });
       onCreated(result.project.id);
-      setTitle("");
-      setAutorun(false);
     } catch (exc) {
       setError(exc.message);
     } finally {
@@ -55,24 +51,17 @@ function ProjectForm({ onCreated }) {
   return (
     <form className="projectForm" onSubmit={handleSubmit}>
       <label>
-        项目名
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="可选，不填会自动截取剧情开头"
-        />
-      </label>
-      <label>
         剧情
         <textarea value={story} onChange={(event) => setStory(event.target.value)} rows={8} />
       </label>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={autorun}
-          onChange={(event) => setAutorun(event.target.checked)}
-        />
-        创建后立即启动生成
+      <label>
+        首帧 backend
+        <select value={backend} onChange={(event) => setBackend(event.target.value)}>
+          <option value="qwen_image21">qwen_image21</option>
+          <option value="pulid_flux">pulid_flux</option>
+          <option value="ip_adapter">ip_adapter</option>
+          <option value="legacy">legacy</option>
+        </select>
       </label>
       {error ? <div className="error">{error}</div> : null}
       <button type="submit" disabled={submitting || !story.trim()}>
@@ -100,7 +89,7 @@ function ProjectList({ projects, selectedId, onSelect, onRefresh }) {
             className={`projectItem ${selectedId === project.id ? "selected" : ""}`}
             onClick={() => onSelect(project.id)}
           >
-            <span className="projectTitle">{project.title}</span>
+            <span className="projectTitle">{project.id}</span>
             <StatusPill value={project.status} />
             <span className="projectMeta">{formatTime(project.created_at)}</span>
           </button>
@@ -110,21 +99,22 @@ function ProjectList({ projects, selectedId, onSelect, onRefresh }) {
   );
 }
 
-function JobCard({ job }) {
-  if (!job) {
-    return <div className="empty">暂无任务</div>;
+function ShotList({ shots }) {
+  if (!shots || shots.length === 0) {
+    return <div className="empty">暂无 shot，生成剧本后会自动出现</div>;
   }
   return (
-    <div className="jobCard">
-      <div className="jobTop">
-        <strong>{job.type}</strong>
-        <StatusPill value={job.status} />
-      </div>
-      <div className="progressTrack">
-        <div className="progressBar" style={{ width: `${job.progress || 0}%` }} />
-      </div>
-      <div className="jobMessage">{job.message || "-"}</div>
-      {job.error ? <pre className="errorBlock">{job.error}</pre> : null}
+    <div className="projectList">
+      {shots.map((shot) => (
+        <div key={shot.id} className="jobCard">
+          <div className="jobTop">
+            <strong>{shot.shot_id}</strong>
+            <StatusPill value={shot.status} />
+          </div>
+          <div className="jobMessage">{shot.message || "-"}</div>
+          {shot.error ? <pre className="errorBlock">{shot.error}</pre> : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -234,10 +224,6 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
     try {
       if (action === "run") {
         await api.runProject(projectId);
-      } else if (action === "generateVideos") {
-        await api.generateVideos(projectId);
-      } else if (action === "assemble") {
-        await api.assembleProject(projectId);
       }
       await refresh();
       await onRefreshProjects();
@@ -274,7 +260,7 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
     );
   }
 
-  const { project, artifacts } = detail;
+  const { project, artifacts, shots } = detail;
   const finalVideo = artifacts.find((item) => item.name === "final/final_video.mp4");
 
   return (
@@ -289,12 +275,6 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
             <button onClick={() => runAction("run")} disabled={Boolean(busyAction)}>
               {busyAction === "run" ? "启动中..." : "启动生成"}
             </button>
-            <button onClick={() => runAction("generateVideos")} disabled={Boolean(busyAction)}>
-              {busyAction === "generateVideos" ? "提交中..." : "生成分镜视频"}
-            </button>
-            <button onClick={() => runAction("assemble")} disabled={Boolean(busyAction)}>
-              {busyAction === "assemble" ? "拼接中..." : "拼接视频"}
-            </button>
           </>
         }
       >
@@ -306,10 +286,16 @@ function ProjectDetail({ projectId, onRefreshProjects }) {
           <StatusPill value={project.status} />
           <span>目录</span>
           <code>{project.project_dir}</code>
-          <span>模型</span>
-          <code>{project.generation_model}</code>
+          <span>Backend</span>
+          <code>{project.backend}</code>
+          <span>提示</span>
+          <strong>{project.message || "-"}</strong>
         </div>
-        <JobCard job={project.latest_job} />
+        {project.error ? <pre className="errorBlock">{project.error}</pre> : null}
+      </Section>
+
+      <Section title="Shot 状态">
+        <ShotList shots={shots} />
       </Section>
 
       {finalVideo ? (
