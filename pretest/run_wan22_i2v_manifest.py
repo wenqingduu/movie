@@ -61,7 +61,13 @@ def _validate_manifest(data: dict, manifest_path: Path) -> list[dict]:
         input_path = _path(job["input_image"], manifest_path)
         if not input_path.is_file():
             raise FileNotFoundError(f"{job_id}: input image is missing: {input_path}")
-        if not job.get("reuse_video_from") and not job.get("prompt"):
+        reuse_path = job.get("reuse_video_path")
+        if reuse_path and not _path(reuse_path, manifest_path).is_file():
+            raise FileNotFoundError(
+                f"{job_id}: external reuse video is missing: "
+                f"{_path(reuse_path, manifest_path)}"
+            )
+        if not job.get("reuse_video_from") and not reuse_path and not job.get("prompt"):
             raise ValueError(f"{job_id}: prompt is required for generated videos")
     return jobs
 
@@ -176,6 +182,25 @@ def run(args) -> dict:
                 torch.cuda.reset_peak_memory_stats()
             if output_path.is_file() and output_path.stat().st_size > 0 and not args.overwrite:
                 record["status"] = "skipped_existing"
+            elif job.get("reuse_video_path"):
+                source_path = _path(job["reuse_video_path"], manifest_path)
+                expected_input_hash = job.get("reuse_verified_input_sha256")
+                expected_output_hash = job.get("reuse_verified_output_sha256")
+                if expected_input_hash and record["input_sha256"] != expected_input_hash:
+                    raise ValueError(
+                        f"{job_id}: current input hash no longer matches the "
+                        "externally reused video's verified input hash"
+                    )
+                if expected_output_hash and _sha256(source_path) != expected_output_hash:
+                    raise ValueError(
+                        f"{job_id}: external reuse video's file hash no longer "
+                        "matches its source report"
+                    )
+                shutil.copy2(source_path, output_path)
+                record["status"] = "reused_external_verified"
+                record["reuse_video_path"] = str(source_path)
+                record["reuse_verified_input_sha256"] = expected_input_hash
+                record["reuse_verified_output_sha256"] = expected_output_hash
             elif job.get("reuse_video_from"):
                 source_job_id = job["reuse_video_from"]
                 source_path = completed_outputs.get(source_job_id)
@@ -251,7 +276,12 @@ def run(args) -> dict:
 
     report["elapsed_seconds"] = time.perf_counter() - started
     report["completed_jobs"] = sum(
-        item["status"] in {"generated", "reused_control", "skipped_existing"}
+        item["status"] in {
+            "generated",
+            "reused_control",
+            "reused_external_verified",
+            "skipped_existing",
+        }
         for item in report["jobs"]
     )
     report["failed_jobs"] = sum(item["status"] == "failed" for item in report["jobs"])

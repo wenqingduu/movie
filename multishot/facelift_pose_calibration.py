@@ -147,6 +147,10 @@ def run(args) -> Path:
 
     os.environ["MULTISHOT_INSIGHTFACE_MODEL_NAME"] = "antelopev2"
     os.environ["MULTISHOT_INSIGHTFACE_ROOT"] = str(PROJECT_ROOT / "third_party" / "PuLID")
+    # Pose calibration only consumes detector boxes/confidence and the pose
+    # produced by the 3D landmark model.  Avoid running identity, age/gender,
+    # and 2D-landmark heads for every camera-grid sample.
+    os.environ["MULTISHOT_INSIGHTFACE_ALLOWED_MODULES"] = "detection,landmark_3d_68"
     os.environ["MULTISHOT_FACELIFT_RENDER_SIZE"] = str(args.image_size)
 
     facelift_root = PROJECT_ROOT / "third_party" / "FaceLift"

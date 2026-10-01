@@ -39,6 +39,12 @@ class InsightFaceBackend:
         ]
         model_name = os.getenv("MULTISHOT_INSIGHTFACE_MODEL_NAME", "buffalo_l")
         model_root = Path(os.getenv("MULTISHOT_INSIGHTFACE_ROOT", str(INSIGHTFACE_ROOT)))
+        allowed_modules_value = os.getenv("MULTISHOT_INSIGHTFACE_ALLOWED_MODULES", "").strip()
+        allowed_modules = (
+            [item.strip() for item in allowed_modules_value.split(",") if item.strip()]
+            if allowed_modules_value
+            else None
+        )
         # The PuLID runtime already vendors a complete AntelopeV2 pack.  Prefer
         # that local pack when the requested default model has not been
         # extracted, instead of allowing InsightFace to start an implicit
@@ -54,6 +60,7 @@ class InsightFaceBackend:
             name=model_name,
             root=str(model_root),
             providers=providers,
+            allowed_modules=allowed_modules,
         )
         ctx_id = 0 if providers and providers[0] == "CUDAExecutionProvider" else -1
         app.prepare(ctx_id=ctx_id, det_size=(640, 640))
@@ -96,7 +103,8 @@ class InsightFaceBackend:
         results = []
         for index, face in enumerate(sorted(faces, key=lambda item: float(item.bbox[0]))):
             bbox = [round(float(value) / scale, 2) for value in face.bbox]
-            embedding = _as_float_list(face.normed_embedding)
+            raw_embedding = getattr(face, "normed_embedding", None)
+            embedding = _as_float_list(raw_embedding) if raw_embedding is not None else []
             pose = getattr(face, "pose", [0.0, 0.0, 0.0])
             results.append({
                 "face_id": f"face_{index}",

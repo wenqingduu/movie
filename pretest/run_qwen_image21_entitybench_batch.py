@@ -10,6 +10,7 @@ BiSeNet instance for every shot.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -51,6 +52,14 @@ def _slug(value: str) -> str:
 def _write(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(16 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _shot_prompts(episode: dict) -> dict[str, str]:
@@ -255,6 +264,16 @@ def run_treatment(args, manifest: dict) -> None:
 
 def build_wan_manifest(output_root: Path, manifest: dict) -> dict:
     jobs = []
+    historical_root = PROJECT_ROOT / "outputs/entitybench_qwen_image21_v7_full3"
+    historical_report_path = historical_root / "wan_report.json"
+    historical_jobs = {}
+    if historical_report_path.is_file():
+        historical_report = json.loads(
+            historical_report_path.read_text(encoding="utf-8")
+        )
+        historical_jobs = {
+            item["job_id"]: item for item in historical_report.get("jobs", [])
+        }
     for record in manifest["shots"]:
         shot_dir = Path(record["shot_dir"])
         result = json.loads((shot_dir / "result.json").read_text(encoding="utf-8"))
@@ -265,16 +284,50 @@ def build_wan_manifest(output_root: Path, manifest: dict) -> dict:
             "shot_index": record["shot_index"], "prompt": record["official_prompt"],
             "seed": record["seed"],
         }
-        jobs.append({**common, "job_id": control_id, "condition": "control",
-                     "input_image": str((shot_dir / "control.png").resolve()),
-                     "output_video": str((shot_dir / "videos/control.mp4").resolve())})
+        control_image = shot_dir / "control.png"
+        control_job = {
+            **common,
+            "job_id": control_id,
+            "condition": "control",
+            "input_image": str(control_image.resolve()),
+            "output_video": str((shot_dir / "videos/control.mp4").resolve()),
+        }
+        historical_shot = (
+            historical_root
+            / record["run"]
+            / "shots"
+            / f"shot_{record['shot_key'].replace(':', '_')}"
+        )
+        historical_image = historical_shot / "control.png"
+        historical_video = historical_shot / "videos/control.mp4"
+        historical_job = historical_jobs.get(control_id, {})
+        current_control_sha = _sha256(control_image)
+        if (
+            historical_image.is_file()
+            and historical_video.is_file()
+            and current_control_sha == _sha256(historical_image)
+            and historical_job.get("input_sha256") == current_control_sha
+            and historical_job.get("output_sha256") == _sha256(historical_video)
+        ):
+            control_job["reuse_video_path"] = str(historical_video.resolve())
+            control_job["reuse_verified_input_sha256"] = current_control_sha
+            control_job["reuse_verified_output_sha256"] = historical_job[
+                "output_sha256"
+            ]
+        jobs.append(control_job)
         treatment_job = {**common, "job_id": prefix + "_treatment", "condition": "treatment",
                          "input_image": str((shot_dir / "treatment.png").resolve()),
                          "output_video": str((shot_dir / "videos/treatment.mp4").resolve())}
         if not result.get("injection_applied"):
             treatment_job["reuse_video_from"] = control_id
         jobs.append(treatment_job)
-    value = {"kind": "entitybench_qwen_image21_v7_full3_wan_manifest", "jobs": jobs}
+    value = {
+        "kind": "entitybench_qwen_image21_v7_full3_wan_manifest",
+        "historical_control_video_reuse": (
+            "enabled only when current and historical Control PNG SHA256 match"
+        ),
+        "jobs": jobs,
+    }
     _write(output_root / "wan_manifest.json", value)
     return value
 

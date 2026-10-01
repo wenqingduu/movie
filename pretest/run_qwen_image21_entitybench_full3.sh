@@ -7,6 +7,7 @@ qwen_python=/root/autodl-tmp/qwen-image21-venv/bin/python
 face_python="$project_root/.venv/bin/python"
 wan_python=/root/autodl-tmp/wan22-venv/bin/python
 export MULTISHOT_INSIGHTFACE_PROVIDERS=CPUExecutionProvider
+onnx_cuda_libs=/root/autodl-tmp/onnx_cuda12_libs
 
 cd "$project_root"
 mkdir -p "$output_root/logs"
@@ -28,5 +29,19 @@ mkdir -p "$output_root/logs"
   --report "$output_root/wan_report.json" \
   --continue-on-error 2>&1 | tee "$output_root/logs/05_wan.log"
 
+if [[ -d "$onnx_cuda_libs" ]]; then
+  export LD_LIBRARY_PATH="$onnx_cuda_libs/nvidia/cublas/lib:$onnx_cuda_libs/nvidia/cuda_runtime/lib:$onnx_cuda_libs/nvidia/cufft/lib:$project_root/.venv/lib/python3.10/site-packages/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export MULTISHOT_INSIGHTFACE_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
+fi
+
 "$face_python" pretest/evaluate_qwen_image21_entitybench_batch.py \
   --output-root "$output_root" 2>&1 | tee "$output_root/logs/06_evaluation.log"
+
+"$face_python" pretest/evaluate_qwen_reference_dino.py \
+  --output-root "$output_root" 2>&1 | tee "$output_root/logs/07_dinov2.log"
+
+"$face_python" pretest/render_qwen_evaluation_comparisons.py \
+  --output-root "$output_root" 2>&1 | tee "$output_root/logs/08_comparisons.log"
+
+"$face_python" pretest/summarize_current_episode_results.py \
+  2>&1 | tee "$output_root/logs/09_summary.log"

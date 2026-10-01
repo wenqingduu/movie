@@ -235,8 +235,13 @@ def run(args) -> dict:
     episode_id = episode_path.stem
     selected = set(args.shot) if args.shot else None
     all_shots = _ordered_shots(episode)
+    scoped_shots = [
+        item
+        for item in all_shots
+        if not args.single_character_only or len(item["characters"]) == 1
+    ]
     shots = [
-        item for item in _ordered_shots(episode)
+        item for item in scoped_shots
         if selected is None or item["shot_key"] in selected
     ]
     single_shots = [item for item in shots if len(item["characters"]) == 1]
@@ -375,7 +380,9 @@ def run(args) -> dict:
         torch.cuda.empty_cache()
     records.update(_generate_text_only_controls(fallback_shots, output_dir, args))
 
-    missing = [item["shot_key"] for item in all_shots if item["shot_key"] not in records]
+    missing = [
+        item["shot_key"] for item in scoped_shots if item["shot_key"] not in records
+    ]
     if missing:
         raise RuntimeError(
             "Incremental report is missing unselected shots; rerun without --shot first: "
@@ -384,7 +391,7 @@ def run(args) -> dict:
 
     jobs = []
     single_jobs = []
-    for shot in all_shots:
+    for shot in scoped_shots:
         record = records[shot["shot_key"]]
         is_single = len(shot["characters"]) == 1
         if is_single and record.get("target_character"):
@@ -422,26 +429,31 @@ def run(args) -> dict:
             "minimum_injection_face_height_px": args.min_injection_face_height,
             "maximum_face_detection_retries": args.max_face_detection_retries,
             "mask_policy": "v7 connected identity feature core intersected with eroded color application",
-            "multi_character_policy": "text-only SDXL Control reused",
+            "multi_character_policy": (
+                "excluded from focused first-frame plugin scope"
+                if args.single_character_only
+                else "text-only SDXL Control reused"
+            ),
+            "single_character_only": bool(args.single_character_only),
             "prompt_adaptation": "official action_description moved before entity definitions for CLIP-77",
         },
-        "shots": [records[item["shot_key"]] for item in all_shots],
-        "shot_count": len(all_shots),
+        "shots": [records[item["shot_key"]] for item in scoped_shots],
+        "shot_count": len(scoped_shots),
         "single_character_shot_count": sum(
-            len(item["characters"]) == 1 for item in all_shots
+            len(item["characters"]) == 1 for item in scoped_shots
         ),
         "fallback_shot_count": sum(
-            len(item["characters"]) != 1 for item in all_shots
+            len(item["characters"]) != 1 for item in scoped_shots
         ),
         "injected_shots": sum(
             len(item["characters"]) == 1
             and not records[item["shot_key"]].get("plugin_skipped", False)
-            for item in all_shots
+            for item in scoped_shots
         ),
         "control_reuse_shots": sum(
             len(item["characters"]) != 1
             or records[item["shot_key"]].get("plugin_skipped", False)
-            for item in all_shots
+            for item in scoped_shots
         ),
         "wan_job_count": len(jobs),
     }
@@ -479,6 +491,14 @@ def parse_args():
     parser.add_argument("--max-face-detection-retries", type=int, default=3)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument(
+        "--single-character-only",
+        action="store_true",
+        help=(
+            "Evaluate only single-character shots and omit text-only multi-character "
+            "Control/reuse pairs. This is the focused first-frame plugin scope."
+        ),
+    )
     return parser.parse_args()
 
 
