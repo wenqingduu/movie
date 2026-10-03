@@ -25,10 +25,12 @@ source "$VLLM_VENV/bin/activate"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export VLLM_USE_FLASHINFER_SAMPLER="${VLLM_USE_FLASHINFER_SAMPLER:-0}"
+export VLLM_SERVER_DEV_MODE=1
 
 python - <<'PY'
 from pathlib import Path
 import site
+import re
 
 paths = site.getsitepackages()
 target = None
@@ -56,17 +58,23 @@ new_import = '''def kernel_warmup(worker: "Worker", *, process_local_only: bool 
     except Exception:
         logger.exception("Skipping MiniMax M3 MSA warmup import.")
 '''
-old_call = "    minimax_m3_msa_warmup(worker)\n"
 new_call = "    if minimax_m3_msa_warmup is not None:\n        minimax_m3_msa_warmup(worker)\n"
 
 changed = False
 if old_import in text:
     text = text.replace(old_import, new_import)
     changed = True
-if old_call in text:
-    text = text.replace(old_call, new_call)
+patched = re.sub(
+    r"(?m)^(?:[ \t]+if minimax_m3_msa_warmup is not None:\n)*"
+    r"[ \t]+minimax_m3_msa_warmup\(worker\)\n",
+    lambda match: new_call,
+    text,
+)
+if patched != text:
+    text = patched
     changed = True
 if changed:
+    compile(text, str(target), "exec")
     target.write_text(text)
     print(f"Patched {target}")
 PY
@@ -78,4 +86,7 @@ exec vllm serve "$MODEL_DIR" \
   --quantization awq \
   --max-model-len "$MAX_MODEL_LEN" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+  --enable-sleep-mode \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
   --enforce-eager

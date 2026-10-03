@@ -178,27 +178,25 @@ def generate_shot_videos(
 ) -> dict[str, Any]:
     """Generate shot videos for a project using the existing Wan manifest runner."""
 
-    project_path = Path(project_dir)
-    manifest_file = Path(manifest_path) if manifest_path else project_path / "wan_manifest_product.json"
-    report_file = Path(report_path) if report_path else project_path / "wan_video_report.json"
+    project_path = Path(project_dir).resolve()
+    manifest_file = Path(manifest_path).resolve() if manifest_path else project_path / "wan_manifest_product.json"
+    report_file = Path(report_path).resolve() if report_path else project_path / "wan_video_report.json"
 
     if not manifest_file.is_file():
         raise FileNotFoundError(f"Missing Wan manifest: {manifest_file}")
 
-    from pretest.run_wan22_i2v_manifest import run as run_wan_manifest
-
     args = argparse.Namespace(
         manifest=str(manifest_file),
         report=str(report_file),
-        wan_root=str(wan_root or os.getenv("WAN_ROOT", "/root/autodl-tmp/Wan2.2")),
+        wan_root=str(Path(wan_root or os.getenv("WAN_ROOT", "/root/autodl-tmp/Wan2.2")).resolve()),
         wan_commit=os.getenv("WAN_COMMIT", "42bf4cfaa384bc21833865abc2f9e6c0e67233dc"),
-        checkpoint_dir=str(
+        checkpoint_dir=str(Path(
             checkpoint_dir
             or os.getenv(
                 "WAN_CHECKPOINT_DIR",
                 str(Path(__file__).resolve().parents[1] / "models/video/Wan2.2-TI2V-5B"),
             )
-        ),
+        ).resolve()),
         size=size or os.getenv("WAN_SIZE", "1280*704"),
         frame_num=int(frame_num if frame_num is not None else os.getenv("WAN_FRAME_NUM", "49")),
         sample_steps=int(
@@ -217,7 +215,23 @@ def generate_shot_videos(
         overwrite=_env_bool("WAN_OVERWRITE") if overwrite is None else overwrite,
         continue_on_error=_env_bool("WAN_CONTINUE_ON_ERROR") if continue_on_error is None else continue_on_error,
     )
-    return run_wan_manifest(args)
+    # Wan has its own CUDA and model dependencies. Run the existing CLI in its
+    # environment and leave the Celery process free of video model weights.
+    python = Path(os.getenv("WAN_PYTHON", "/root/autodl-tmp/wan22-venv/bin/python"))
+    if not python.is_file():
+        raise FileNotFoundError(f"Wan Python environment is missing: {python}")
+    command = [str(python), "-m", "pretest.run_wan22_i2v_manifest"]
+    for name, value in vars(args).items():
+        flag = "--" + name.replace("_", "-")
+        if isinstance(value, bool):
+            if value:
+                command.append(flag)
+        elif value is not None:
+            command.extend([flag, str(value)])
+    subprocess.run(command, cwd=Path(__file__).resolve().parents[1], check=True)
+    if not report_file.is_file():
+        raise FileNotFoundError(f"Wan did not write its report: {report_file}")
+    return json.loads(report_file.read_text(encoding="utf-8"))
 
 
 def run_story_project(
@@ -230,7 +244,7 @@ def run_story_project(
 ) -> dict[str, Any]:
     """Run the product pipeline up to first frames and optional Wan manifest."""
 
-    project_path = Path(project_dir)
+    project_path = Path(project_dir).resolve()
     project_path.mkdir(parents=True, exist_ok=True)
 
     from .graph import build_multishot_graph
@@ -295,7 +309,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         default="qwen_image21",
-        help="First-frame backend: qwen_image21, pulid_flux, ip_adapter, or a legacy diffusion model.",
+        help="First-frame backend: qwen_image21, or an existing legacy diffusion model.",
     )
     parser.add_argument("--base-seed", type=int, default=1000)
     parser.add_argument(

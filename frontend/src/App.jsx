@@ -27,7 +27,6 @@ function Section({ title, children, actions }) {
 
 function ProjectForm({ onCreated }) {
   const [story, setStory] = useState(SAMPLE_STORY);
-  const [backend, setBackend] = useState("qwen_image21");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,7 +37,7 @@ function ProjectForm({ onCreated }) {
     try {
       const result = await api.createProject({
         story,
-        backend,
+        backend: "qwen_image21",
       });
       onCreated(result.project.id);
     } catch (exc) {
@@ -53,15 +52,6 @@ function ProjectForm({ onCreated }) {
       <label>
         剧情
         <textarea value={story} onChange={(event) => setStory(event.target.value)} rows={8} />
-      </label>
-      <label>
-        首帧 backend
-        <select value={backend} onChange={(event) => setBackend(event.target.value)}>
-          <option value="qwen_image21">qwen_image21</option>
-          <option value="pulid_flux">pulid_flux</option>
-          <option value="ip_adapter">ip_adapter</option>
-          <option value="legacy">legacy</option>
-        </select>
       </label>
       {error ? <div className="error">{error}</div> : null}
       <button type="submit" disabled={submitting || !story.trim()}>

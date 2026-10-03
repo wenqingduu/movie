@@ -25,5 +25,7 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     worker_prefetch_multiplier=1,
+    # MCP subprocess transport requires stderr to expose a real descriptor.
+    worker_redirect_stdouts=False,
     task_acks_late=True,
 )

@@ -5,11 +5,14 @@ import sys
 from pathlib import Path
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from .mcp_asset_server import PROJECT_DIR_ENV
 from .prompts import ASSET_GENERATION_PROMPT, SCRIPT_PLANNING_PROMPT
+from .product_gpu import asset_gpu_interceptor, set_llm_sleep
+from .product_face_assets import calibrate_product_face
 
 # 这里使用阿里云 DashScope 的 OpenAI 兼容接口。
 # API key 从环境变量 DASHSCOPE_API_KEY 读取，避免写进代码仓库。
@@ -88,6 +91,9 @@ def _mcp_env(project_dir: Path):
     env[PROJECT_DIR_ENV] = str(project_dir)
     current_pythonpath = env.get("PYTHONPATH", "")
     project_root = str(Path(__file__).resolve().parents[1])
+    env.setdefault("MULTISHOT_ASSET_GENERATION_MODEL", "sdxl-base-1.0")
+    env.setdefault("MULTISHOT_DIFFUSION_STEPS", "30")
+    env.setdefault("MULTISHOT_GUIDANCE_SCALE", "5.0")
     if project_root not in current_pythonpath.split(os.pathsep):
         env["PYTHONPATH"] = (
             project_root
@@ -95,6 +101,22 @@ def _mcp_env(project_dir: Path):
             else project_root + os.pathsep + current_pythonpath
         )
     return env
+
+
+def _first_frame_mcp_python(backend: str) -> str:
+    if backend.strip().lower() != "qwen_image21":
+        return sys.executable
+    python = Path(
+        os.getenv(
+            "QWEN_IMAGE21_PYTHON",
+            "/root/autodl-tmp/qwen-image21-venv/bin/python",
+        )
+    )
+    if not python.is_file():
+        raise FileNotFoundError(
+            f"Qwen-Image-2.1 Python environment is missing: {python}"
+        )
+    return str(python)
 
 
 class InputStoryAgent:
@@ -135,6 +157,7 @@ class ScriptPlanningAgent:
 
     def run(self, state: dict):
         # 剧本规划目前不需要工具，直接要求 Qwen 输出 JSON。
+        set_llm_sleep(False)
         response = self.model.invoke([
             ("system", SCRIPT_PLANNING_PROMPT),
             ("user", state["story"]),
@@ -181,12 +204,13 @@ class AssetGenerationAgent:
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
                 "command": sys.executable,
-                "args": ["-m", "multishot.mcp_asset_server"],#当前程序会启动一个新的 Python 子进程，运行：multishot/mcp_asset_server.py
+                "args": ["-m", "multishot.product_mcp_server"],
                 "transport": "stdio",
                 "env": _mcp_env(project_dir),
             }
-        })
+        }, tool_interceptors=[asset_gpu_interceptor()], handle_tool_errors=False)
 
+        await asyncio.to_thread(set_llm_sleep, False)
         tools = await mcp_client.get_tools()
         asset_tools = [
             tool for tool in tools
@@ -265,6 +289,7 @@ class Face3DModelingAgent:
         return asyncio.run(self.arun(state))
 
     async def arun(self, state: dict):
+        await asyncio.to_thread(set_llm_sleep, True)
         project_dir = Path(state["project_dir"])
         asset_index_path = project_dir / "asset_index.json"
         asset_index = json.loads(asset_index_path.read_text(encoding="utf-8"))
@@ -272,11 +297,11 @@ class Face3DModelingAgent:
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
                 "command": sys.executable,
-                "args": ["-m", "multishot.mcp_asset_server"],
+                "args": ["-m", "multishot.product_mcp_server"],
                 "transport": "stdio",
                 "env": _mcp_env(project_dir),
             }
-        })
+        }, handle_tool_errors=False)
 
         tools = await mcp_client.get_tools()
         build_face_tool = next(tool for tool in tools if tool.name == "build_3d_face_asset")
@@ -287,9 +312,16 @@ class Face3DModelingAgent:
                 "character_id": character_id,
                 "reference_image_path": character_asset["path"],
             })
-            face_3d_assets[character_id] = _tool_result(result)
+            face_3d_assets[character_id] = await asyncio.to_thread(
+                calibrate_product_face, _tool_result(result)
+            )
 
         asset_index = json.loads(asset_index_path.read_text(encoding="utf-8"))
+        for character_id, face_3d in face_3d_assets.items():
+            asset_index["character_assets"][character_id]["face_3d"] = face_3d
+        asset_index_path.write_text(
+            json.dumps(asset_index, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         state["asset_index"] = asset_index
         state["face_3d_assets"] = face_3d_assets
@@ -304,42 +336,49 @@ class ShotFirstFrameAgent:
 
     这个节点的复杂逻辑放在 MCP 工具内部：
     - 根据 shot_id / subscript_id / character_ids 检索相关素材。
-    - 调用伪 diffusion 生成流程。
-    - 在固定步数检测人脸清晰度。
-    - 清晰后做人脸特征、相似度、3D 人脸检索和 rollout 注入。
+    - 背景和人物参考图共同输入 Qwen-Image-2.1。
+    - step 12 的 pred_x0 用于角色映射和连续姿态 3D 渲染。
+    - 在同一条去噪轨迹逐角色注入 v7 residual，只生成最终首帧。
     """
 
     def run(self, state: dict):
         return asyncio.run(self.arun(state))
 
     async def arun(self, state: dict):
+        await asyncio.to_thread(set_llm_sleep, True)
         project_dir = Path(state["project_dir"])
         backend = state.get("backend", "qwen_image21")
 
         mcp_client = MultiServerMCPClient({
             "multishot_assets": {
-                "command": sys.executable,
-                "args": ["-m", "multishot.mcp_asset_server"],
+                "command": _first_frame_mcp_python(backend),
+                "args": ["-m", "multishot.product_mcp_server"],
                 "transport": "stdio",
                 "env": _mcp_env(project_dir),
             }
         })
 
-        tools = await mcp_client.get_tools()
-        first_frame_tool = next(tool for tool in tools if tool.name == "generate_shot_first_frame")
+        # Keep one MCP process alive for all shots.  Qwen's model cache lives in
+        # that process; stateless get_tools() would reload the 31 GB model for
+        # every tool invocation.
+        async with mcp_client.session("multishot_assets") as session:
+            tools = await load_mcp_tools(session, handle_tool_errors=False)
+            first_frame_tool = next(
+                tool for tool in tools if tool.name == "generate_shot_first_frame"
+            )
 
-        for shot in state["project_plan"]["shots"]:
-            result = await first_frame_tool.ainvoke({
-                "shot_id": shot["shot_id"],
-                "subscript_id": shot["subscript_id"],
-                "character_ids": shot["character_ids"],
-                "first_frame_prompt": shot["first_frame_prompt"],
-                "backend": backend,
-            })
-            result = _tool_result(result)
-            shot["first_frame_path"] = result["frame_path"]
-            shot["first_frame_denoise_log_path"] = result["denoise_log_path"]
-            shot["first_frame_backend"] = backend
+            for shot in state["project_plan"]["shots"]:
+                result = await first_frame_tool.ainvoke({
+                    "shot_id": shot["shot_id"],
+                    "subscript_id": shot["subscript_id"],
+                    "character_ids": shot["character_ids"],
+                    "first_frame_prompt": shot["first_frame_prompt"],
+                    "backend": backend,
+                })
+                result = _tool_result(result)
+                shot["first_frame_path"] = result["frame_path"]
+                shot["first_frame_denoise_log_path"] = result["denoise_log_path"]
+                shot["first_frame_backend"] = backend
 
         project_plan_path = project_dir / "project_plan.json"
         project_plan_path.write_text(

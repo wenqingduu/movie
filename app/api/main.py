@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException
@@ -24,7 +25,7 @@ FRONTEND_DIST = FRONTEND_ROOT / "dist"
 
 class CreateProjectRequest(BaseModel):
     story: str = Field(min_length=1)
-    backend: str = "qwen_image21"
+    backend: Literal["qwen_image21"] = "qwen_image21"
 
 
 def project_dir(project_id: str) -> Path:

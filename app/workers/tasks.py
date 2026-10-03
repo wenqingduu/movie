@@ -6,12 +6,18 @@ from pathlib import Path
 from typing import Any
 
 from app.services import store
+from multishot.product_gpu import product_gpu_lock
 
 from .celery_app import celery_app
 
 
 @celery_app.task(name="movie.generate_project", queue="gpu")
 def generate_project(project_id: str) -> dict[str, Any]:
+    with product_gpu_lock():
+        return _generate_project(project_id)
+
+
+def _generate_project(project_id: str) -> dict[str, Any]:
     project = store.get_project(project_id)
     if project is None:
         return {"ok": False, "error": f"Unknown project: {project_id}"}

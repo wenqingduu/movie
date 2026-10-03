@@ -65,11 +65,14 @@ def _json_safe(data):
 def _generate_image(prompt: str, output_path: str, generation_model: str | None = None):
     """调用开源 diffusion 模型生成图片。
 
-    当前默认模型是 Juggernaut XL v9。
+    产品 Agent 通过 MULTISHOT_ASSET_GENERATION_MODEL 选择 SDXL Base。
+    其他调用方未设置时保留原来的后端默认模型。
     这不是自写模型，只是用 diffusers 加载本地开源模型。
     """
 
-    backend = get_diffusion_backend(generation_model)
+    backend = get_diffusion_backend(
+        generation_model or os.getenv("MULTISHOT_ASSET_GENERATION_MODEL")
+    )
     return backend.generate_image(prompt, output_path)
 
 
