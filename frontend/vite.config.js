@@ -9,5 +9,13 @@ export default defineConfig({
     allowedHosts: [
       "u388080-ybu5-9801affa.westd.seetacloud.com",
     ],
+    proxy: {
+      "/api": {
+        target: process.env.MOVIE_API_TARGET || "http://127.0.0.1:8000",
+      },
+      "/media": {
+        target: process.env.MOVIE_API_TARGET || "http://127.0.0.1:8000",
+      },
+    },
   },
 });
