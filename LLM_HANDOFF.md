@@ -1,6 +1,9 @@
 # 3D 人脸一致性注入项目交接文档
 
-最后更新：2026-09-28。仓库：`/root/autodl-tmp/movie`。
+最后更新：2026-10-04（北京时间）。仓库：`/root/autodl-tmp/movie`。
+
+最新进展：PuLID-FLUX、SDXL/IP-Adapter 的 20 episode 单人首帧与视频评测已完成，
+详见第 11、12 节。528/528 个视频任务完成，失败 0，当前没有仍在运行的评测 tmux 任务。
 
 ## 1. 接手顺序
 
@@ -175,6 +178,9 @@ episode-local，不能跨 episode 按同名角色复用。
 - 当前机器可读总表：`outputs/entitybench_current_summary.json`
 - 当前 Markdown 总表：`EPISODE_TEST_RESULTS.md`
 
+以上项目根目录总表仍对应三 episode 范围。最新 PuLID-FLUX/IP-Adapter 的 20 episode
+首帧、视频结果分别以第 11、12 节的独立报告为准，不能把三 episode 总表当作最新扩展汇总。
+
 重新汇总：
 
 ```bash
@@ -287,9 +293,11 @@ run893 / 6:1 的 Qwen Control 计划 4 人但生成了额外背景人物；当�
 
 ## 10. 下一步
 
-1. 当前 34-shot 修正版全链路已完成；后续优先分析高身份单步组，尤其 run1517 的高置信正脸重绘；
-2. 决定 `0.40` 阈值是否保留时，继续同时报告 IF、DINOv2、绝对值、差值和肉眼结果；
-3. 不重新引入已删除的 2/5 步、临时调色下限、self-attention、旧调色路径或两遍式
+1. 20 episode 单人首帧和视频扩展已完成；优先按脸部尺寸、难度和 episode 分析视频增益、
+   负例与检测覆盖率，尤其审计 IP-Adapter 较低的绝对身份分数；
+2. Qwen 34-shot 修正版全链路已完成，继续分析高身份单步组，尤其 run1517 的高置信正脸重绘；
+3. 决定 `0.40` 阈值是否保留时，继续同时报告 IF、DINOv2、绝对值、差值和肉眼结果；
+4. 不重新引入已删除的 2/5 步、临时调色下限、self-attention、旧调色路径或两遍式
    “先完整 Control 再从噪声重跑 Treatment”。
 
 ## 11. 2026-09-29 至 2026-10-01：20 episode 首帧扩展评测
@@ -317,7 +325,12 @@ run893 / 6:1 的 Qwen Control 计划 4 人但生成了额外背景人物；当�
 
 本轮 tmux `entitybench_ff20` 已正常结束；不存在仍在后台运行的任务。生成完整性：资产 20/20、
 PuLID 报告 20/20、IP 报告 20/20。逐 shot 的 Control、Treatment、原参考、3D render、调色 reference
-和 comparison 均已落盘。本轮只有首帧指标，没有视频指标，也没有 VLM/LLM API 指标。
+和 comparison 均已落盘。此阶段只生成首帧指标；后续第 12 节已补齐视频和逐帧评测。
+VLM/LLM API 指标仍未运行。
+
+角色原始正脸素材由 `pretest/prepare_entitybench_character_assets.py` 显式指定
+SDXL Base 1.0（`stabilityai/stable-diffusion-xl-base-1.0`）生成，再用 FaceLift 构建 Gaussian。
+通用 diffusion 后端的默认 `juggernaut-xl-v9` 不代表本轮评测素材使用的模型。
 
 实际触发注入且 Control/Treatment 都可测量的 micro mean：
 
@@ -343,14 +356,67 @@ run146/28:1，最大负例为 run354/4:1。负例必须保留，不得依据分�
 
 ### 11.1 Git 状态与交接注意事项
 
-截至 2026-10-01，当前分支为 `main`，`HEAD` 和 `origin/main` 都仍在 `0a1b44d`。用户随后要求
-“把目前的评测代码推送一下”，但在 commit/push 前又要求切换新窗口，因此最新评测代码**尚未提交、
-也尚未推送**。
+2026-10-01 交接时首帧扩展代码尚未提交；后续已通过 `b27393f`
+（`Add 20-episode first-frame evaluation pipeline`）提交。2026-10-04 核对时分支为 `main`，
+`HEAD` 和本地 `origin/main` 均为 `b6c06e9`。本次视频协调器、视频评测/续跑修改和交接文档
+仍在工作树中，尚未提交；`experiment_output/` 为未跟踪输出，不要 stage。
 
-工作树同时包含另一组 app/frontend/product-pipeline 改动，所有权不属于本次评测提交。后续提交时：
+后续提交评测代码时仍应保留用户工作树，检查是否有并行 app/frontend/product-pipeline 改动：
 
 - 保留整个脏工作树，禁止 reset/checkout 覆盖用户改动；
 - 只 stage 评测文档、评测/运行脚本、Qwen 当前评测链路、
   `multishot/face_analysis_backend.py` 和 `multishot/facelift_pose_calibration.py`；
 - 不 stage `app/`、`frontend/`、产品 pipeline 改动、`experiment_output/` 或任何 `outputs/`；
 - 提交前重新执行 Python compile、shell `bash -n`、`git diff --check`，检查 staged diff 后再 push。
+
+## 12. 2026-10-04：20 episode 单人镜头视频扩展已完成
+
+用户要求将第 11 节的 PuLID-FLUX 和 SDXL/IP-Adapter 首帧队列补齐 Wan 视频。
+tmux `entitybench_video20` 已结束；`progress.json` 为 `complete`，当前没有后台评测任务。
+
+- 执行入口：`pretest/run_entitybench_firstframe_pulid_ip_20ep_videos.sh`。
+- 可恢复协调器：`pretest/run_entitybench_firstframe_pulid_ip_20ep_videos.py`。
+- 输出：`outputs/entitybench_firstframe_pulid_ip_20ep/video_evaluation/`，其中 `wan_manifest.json`、`first_frame_hashes.json`、`wan_report.json`、`progress.json` 和 `logs/tmux.log` 可核对进度与复跑。
+- 范围：20 episode × 两条路线，各 132 个单人 shot，共 264 组 Control/Treatment、528 个视频任务。多人与无人镜头不在这次扩展范围。
+- 最终完整性：528/528 个视频任务完成，408 个新生成、44 个历史视频经过输入/输出 SHA256 及 Wan 参数验证后复用、76 个安全回退 Treatment 复用 Control；失败 0。
+- 参数沿用 Wan2.2-TI2V-5B、1280×704、49 帧、24 fps、50 steps、shift 5.0、guidance 5.0、各镜头原 seed。Control/Treatment 仅首帧的 v7 注入不同。
+- 20 episode × 两路线的 40 份视频 InsightFace 报告、40 个 DINOv2 case 和 264 组配对明细已完成。InsightFace 报告中全部 528 条视频均解码为 49 帧。
+- 身份视频跟踪使用首帧 bbox 初始化的空间连续跟踪，缺少初始 bbox 时从面积最大的检测脸启动；不按最高身份相似度逐帧挑脸。DINOv2 视频复用相同的跟踪 bbox，face crop expansion 为 0.15。
+
+实际注入且两侧可测量的配对均值如下。首帧与视频均报告 Control、Treatment 实际值及差值：
+
+| 路线 | 单人 shot | 实际注入 / 安全复用 | 首帧 InsightFace C→T (Δ) | 视频 InsightFace mean C→T (Δ) | 首帧 DINOv2 C→T (Δ) | 视频 DINOv2 mean C→T (Δ) |
+|---|---:|---:|---:|---:|---:|---:|
+| PuLID-FLUX | 132 | 104 / 28 | `0.6825→0.7160 (+0.0335)` | `0.5697→0.5852 (+0.0155)` | `0.7513→0.7685 (+0.0172)` | `0.6522→0.6624 (+0.0102)` |
+| IP-Adapter | 132 | 84 / 48 | `0.0831→0.1997 (+0.1166)` | `0.0782→0.1653 (+0.0870)` | `0.4432→0.4793 (+0.0360)` | `0.4165→0.4425 (+0.0261)` |
+
+统计口径与限制：
+
+- 视频先对每条视频可检测/可评分帧求均值，再对有效注入镜头等权求均值；上表视频 DINOv2 使用 `video_frame_mean`，不是 shot median。
+- PuLID 首帧/视频有效对均为 104；视频 InsightFace 74 正、30 负，视频 DINOv2 63 正、41 负。
+- IP 首帧有效对为 81，视频有效对为 84；视频 InsightFace 71 正、13 负，视频 DINOv2 58 正、26 负。
+  首帧与视频样本集合不同，不能直接用两组整体增量相除宣称严格的增益保留率。
+- 缺脸帧分数保留为 null，并计入检测覆盖率分母，不作为 0 分；安全复用镜头保留在完整清单，未计入实际注入均值。
+- 两路线首帧、视频均值均为正增益，但存在负例；IP 视频 Treatment 身份分数仅 `0.1653`，不能仅凭较大增量宣称高质量身份保持。
+- EntityBench validated 清单共 140 episode、2,491 shot、847 个单人 shot；本轮覆盖 20 episode 的 132 个单人 shot。
+  这是 benchmark 子集评测，每镜头为独立的 49 帧短视频（约 2.04 秒），没有跨镜头记忆，多人和无人镜头未纳入本轮扩展。
+- VLM/LLM API 指标未运行，缺失项不能当作 0。
+
+权威输出（均在 `outputs/entitybench_firstframe_pulid_ip_20ep/video_evaluation/`）：
+
+- `video_evaluation.md`：路线首帧/视频总表；当前落盘版本没有逐 episode Markdown 汇总。
+- `video_evaluation.json`：路线指标和 264 组逐 shot、逐角色视频配对明细；当前落盘版本顶层为 `routes`、`shots`。
+- `cases.json`：40 个 case 的 manifest 与 InsightFace 报告路径索引，**不是逐帧评分文件**。
+- `cases/<episode_id>/<route>/video_identity.json`：每条视频的逐帧身份分数、跟踪 bbox、检测覆盖率、first/mean/p10/last 和配对差值；route 为 `pulid_flux` 或 `ip_adapter`。
+- `dinov2_video.json`、`dinov2_video.md`：40 个 case 的参考图锚定 DINOv2 和逐 episode/路线聚合。
+- `videos/<episode_id>/<route>/shot_<scene>_<shot>/control.mp4` 与 `treatment.mp4`：正式视频文件。
+- `wan_report.json`、`wan_manifest.json`、`first_frame_hashes.json`、`progress.json`、`logs/tmux.log`：任务完整性、输入/输出哈希与运行记录。
+
+用户要求实测双进程并行：隔离目录 `parallel_probe/` 的测试视频完成，耗时约 365 秒；
+单进程近期每条约 184 秒，两进程同时去噪时每步约 6.7 秒（单进程约 3.1 秒），
+合计显存一度约 43 GB。没有观察到明显吞吐提升，正式队列保持单进程。
+`parallel_probe/` 不属于正式 528 条视频/264 组配对，不得混入评测。
+
+后续只审计现有结果时读取上述报告，不要重新生成视频。若需要恢复中断任务，可重新运行同一入口，
+协调器会校验已有输入图及视频哈希。当前代码的汇总器比后台启动时的版本多了字段和逐 episode 表，
+再次执行 `summarize` 会扩展报告结构；不可假定这些新字段已存在于本次落盘报告。

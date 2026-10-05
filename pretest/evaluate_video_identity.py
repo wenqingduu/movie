@@ -144,7 +144,15 @@ def _make_contact_sheet(
     cv2.imwrite(str(output_path), sheet)
 
 
-def _evaluate_video(video_path: Path, reference_embedding, visual_path: Path | None) -> dict:
+def _evaluate_video(
+    video_path: Path,
+    reference_embedding,
+    visual_path: Path | None,
+    *,
+    tracking_policy: str = "identity",
+    initial_bbox: list[float] | None = None,
+    initial_image_size: list[int] | None = None,
+) -> dict:
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"Unable to open video: {video_path}")
@@ -153,15 +161,44 @@ def _evaluate_video(video_path: Path, reference_embedding, visual_path: Path | N
     records = []
     frames = []
     frame_index = 0
+    previous_center = None
     while True:
         ok, frame = capture.read()
         if not ok:
             break
         faces = backend.analyze_bgr(frame)
-        candidates = []
-        for face in faces:
-            candidates.append((_cosine(reference_embedding, face["face_embedding"]), face))
-        selected = max(candidates, key=lambda item: item[0]) if candidates else None
+        if tracking_policy == "spatial":
+            if previous_center is None and initial_bbox and initial_image_size:
+                sx = frame.shape[1] / initial_image_size[0]
+                sy = frame.shape[0] / initial_image_size[1]
+                previous_center = (
+                    (initial_bbox[0] + initial_bbox[2]) * sx / 2,
+                    (initial_bbox[1] + initial_bbox[3]) * sy / 2,
+                )
+            if previous_center is None:
+                face = _largest_face(faces)
+            else:
+                face = min(
+                    faces,
+                    key=lambda item: (
+                        (item["face_bbox"][0] + item["face_bbox"][2]) / 2 - previous_center[0]
+                    ) ** 2 + (
+                        (item["face_bbox"][1] + item["face_bbox"][3]) / 2 - previous_center[1]
+                    ) ** 2,
+                    default=None,
+                )
+            if face is not None:
+                bbox = face["face_bbox"]
+                previous_center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+                selected = (_cosine(reference_embedding, face["face_embedding"]), face)
+            else:
+                selected = None
+        else:
+            candidates = [
+                (_cosine(reference_embedding, face["face_embedding"]), face)
+                for face in faces
+            ]
+            selected = max(candidates, key=lambda item: item[0]) if candidates else None
         record = {
             "frame_index": frame_index,
             "timestamp_seconds": round(frame_index / fps, 6) if fps > 0 else None,
@@ -311,7 +348,14 @@ def run(args) -> dict:
         if not video_path.is_file():
             raise FileNotFoundError(f"{job.get('job_id')}: video is missing: {video_path}")
         visual_path = visual_dir / f"{job['job_id']}_contact.jpg" if visual_dir else None
-        video_result = _evaluate_video(video_path, references[character], visual_path)
+        video_result = _evaluate_video(
+            video_path,
+            references[character],
+            visual_path,
+            tracking_policy=args.tracking_policy,
+            initial_bbox=job.get("target_initial_bbox"),
+            initial_image_size=job.get("target_initial_image_size"),
+        )
         results.append({
             "job_id": job["job_id"],
             "episode_id": job.get("episode_id"),
@@ -325,6 +369,7 @@ def run(args) -> dict:
             partial_pairs = _paired_deltas(results)
             partial = {
                 "kind": "reference_anchored_video_identity_evaluation",
+                "tracking_policy": args.tracking_policy,
                 "manifest": str(manifest_path),
                 "identity_references": reference_report,
                 "jobs": results,
@@ -337,6 +382,7 @@ def run(args) -> dict:
     pairs = _paired_deltas(results)
     report = {
         "kind": "reference_anchored_video_identity_evaluation",
+        "tracking_policy": args.tracking_policy,
         "manifest": str(manifest_path),
         "identity_references": reference_report,
         "jobs": results,
@@ -354,6 +400,7 @@ def parse_args():
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--visual-dir", default=None)
+    parser.add_argument("--tracking-policy", choices=("identity", "spatial"), default="identity")
     return parser.parse_args()
 
 

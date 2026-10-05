@@ -180,7 +180,15 @@ def run(args) -> dict:
         try:
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
+            expected_input = job.get("expected_input_sha256")
+            if expected_input and record["input_sha256"] != expected_input:
+                raise ValueError(f"{job_id}: frozen first-frame hash changed")
             if output_path.is_file() and output_path.stat().st_size > 0 and not args.overwrite:
+                expected_output = job.get("expected_output_sha256")
+                if expected_input and (
+                    not expected_output or _sha256(output_path) != expected_output
+                ):
+                    raise ValueError(f"{job_id}: existing video lacks a matching recorded hash")
                 record["status"] = "skipped_existing"
             elif job.get("reuse_video_path"):
                 source_path = _path(job["reuse_video_path"], manifest_path)
