@@ -1,14 +1,20 @@
 # 3D 人脸一致性注入项目交接文档
 
-最后更新：2026-10-04（北京时间）。仓库：`/root/autodl-tmp/movie`。
+最后更新：2026-10-10（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
 最新进展：PuLID-FLUX、SDXL/IP-Adapter 的 20 episode 单人首帧与视频评测已完成，
-详见第 11、12 节。528/528 个视频任务完成，失败 0，当前没有仍在运行的评测 tmux 任务。
+详见第 11、12 节。528/528 个视频任务完成，失败 0；2026-10-10 核对时 tmux 无运行会话。
+本会话后续补齐了四项指标解释、动漫风格来源核查和 20 张首帧正例对比图（其中 14 张为
+两批写实正例）。新窗口先读第 13 节和 [20 episode 评估说明](docs/entitybench_20ep_evaluation.md)。
+
+本轮随后补齐了 20 episode 的 DINOv2 跨镜头人脸外观质心相似度；见第 14 节。
+该指标采用论文质心公式，但复用现有脸部裁剪，不是官方 `cs_face`，不替代原有四项身份指标。
 
 ## 1. 接手顺序
 
 1. 保留未提交工作树，不要 reset 或 checkout；前后端目录还有用户的并行改动。
-2. 阅读本文和自动生成的 `EPISODE_TEST_RESULTS.md`；执行或审计评测时使用
+2. 阅读本文和 [20 episode 评估说明](docs/entitybench_20ep_evaluation.md)；
+   `EPISODE_TEST_RESULTS.md` 仍是三 episode/Qwen 结果，不能当作 20 episode 总表。执行或审计评测时使用
    `/root/.codex/skills/evaluate-face-injection/SKILL.md`（`$evaluate-face-injection`）。
 3. 核对 GPU、模型路径和 Python 环境。
 4. `c3c9fcccd558befb7302a046794e789c9f71f615` 是本轮 Qwen 全 episode 批处理前的基线；
@@ -152,7 +158,7 @@ Qwen 固定 revision：`790c92633540aa0cb11d9abf19eb46d861714758`。48 GB 单卡
 
 EntityBench：`benchmarks/entitybench/`。
 
-当前三个 episode：
+原始三 episode 范围（20 episode 扩展另见第 11、12 节）：
 
 - run719：12 镜头，8 个单角色；资产在
   `outputs/entitybench_wan22_smoke/episode_00053051/assets/`；
@@ -359,7 +365,12 @@ run146/28:1，最大负例为 run354/4:1。负例必须保留，不得依据分�
 2026-10-01 交接时首帧扩展代码尚未提交；后续已通过 `b27393f`
 （`Add 20-episode first-frame evaluation pipeline`）提交。2026-10-04 核对时分支为 `main`，
 `HEAD` 和本地 `origin/main` 均为 `b6c06e9`。本次视频协调器、视频评测/续跑修改和交接文档
-仍在工作树中，尚未提交；`experiment_output/` 为未跟踪输出，不要 stage。
+当时仍在工作树中，尚未提交。后续已通过 `65a07c2`
+（`Add 20-episode paired video evaluation and update handoff`）提交并推送到 GitHub `main`。
+2026-10-10 核对时本地 `main` / `origin/main` 为 `a62e5b4`（后续产品文档/同源访问提交）。
+`docs/frontend_agent_architecture.md` 有用户未提交改动，`experiment_output/` 为未跟踪输出，
+均须保留；本次交接更新另产生评测文档改动。`outputs/` 下报告、视频与精选图为本机忽略文件，
+没有随着 `65a07c2` 推送到 GitHub。不要 stage 实验输出。
 
 后续提交评测代码时仍应保留用户工作树，检查是否有并行 app/frontend/product-pipeline 改动：
 
@@ -420,3 +431,119 @@ tmux `entitybench_video20` 已结束；`progress.json` 为 `complete`，当前�
 后续只审计现有结果时读取上述报告，不要重新生成视频。若需要恢复中断任务，可重新运行同一入口，
 协调器会校验已有输入图及视频哈希。当前代码的汇总器比后台启动时的版本多了字段和逐 episode 表，
 再次执行 `summarize` 会扩展报告结构；不可假定这些新字段已存在于本次落盘报告。
+
+## 13. 2026-10-10：新窗口接续、对比图与风格核查
+
+本会话最新任务是展示有首帧增益的对比图，随后用户要求改找非动漫例子，并再次追加一批。
+全部使用已有实验文件排版，没有重新生成首帧、视频，也没有修改正式配对分数、清单或 gate。
+当前只是交接文档更新，未启动新实验。
+
+### 13.1 首帧 DINOv2 已完成，旧视频表只是漏列
+
+首帧 InsightFace、首帧 DINOv2、视频 InsightFace mean、视频 DINOv2 mean 四项都已完成。
+旧 `video_evaluation/video_evaluation.md` 只有三项，旧 JSON 路线汇总也缺少
+`firstframe_dinov2` 字段；首帧 DINOv2 应从 `evaluation/firstframe_evaluation.json` 的
+`routes.<route>.reference_dinov2` 和 `shots` 读取，不能解释成“尚未评测”。四项总表见第 12 节。
+
+### 13.2 对比图格式与本机索引
+
+用户认可的顺序是 **2 行 × 3 列**：
+
+| 左列 | 中列 | 右列 |
+|---|---|---|
+| 原始身份参考 | 连续 FaceLift 3D 渲染 | 调色并对齐后的纯 3D reference |
+| 最终 v7 注入 mask | Control 最终首帧 | Treatment 最终首帧 |
+
+标题写路线、run/episode、shot、角色；Control/Treatment 下分别写实际首帧 InsightFace 和
+DINOv2，底部写两项 `Control→Treatment (Δ)`。mask 必须来自实际实验，不能用 `pred_x0`、
+3D 参考 mask 或手绘区域代替。首帧展示图明确标注 `FIRST FRAME`；完整首帧/视频评估图再补
+视频 InsightFace/DINOv2 mean，首帧分数不能冒充视频分数。详细文件映射、复现方式、多人和回退
+格式见 [评估说明的对比图契约](docs/entitybench_20ep_evaluation.md#对比图格式)。
+
+输出根目录：`outputs/entitybench_firstframe_pulid_ip_20ep/`。
+
+| 子目录 | 已展示数量 | 内容 |
+|---|---:|---|
+| `selected_positive_firstframes/` | 6 | 首批大增益正例，混合写实/动画风格；4 张明显偏动画 |
+| `selected_realistic_positive_firstframes/` | 6 | 第一批写实正例，PuLID/IP 各 3 张 |
+| `selected_realistic_positive_firstframes_batch2/` | 8 | 第二批写实正例，PuLID/IP 各 4 张，与前两批不重复 |
+
+每批均有 `README.md`、`selection.json`、`render_examples.py` 和完整六面板 PNG（1800×1080）。
+`selection.json` 保留正式结果行、生成图路径、六个原始面板文件路径；继续找例子前读取三批索引，
+按 `(route, run, shot_key)` 去重。同一 run/shot 的不同路线是不同配对，允许并列。
+20 张的分数和可点击图索引已写入 [20 episode 评估说明](docs/entitybench_20ep_evaluation.md)。
+
+注意原实验目录里的旧 `comparison.jpg`：本轮查看的 PuLID/IP 旧版第四格是中期 `pred_x0`，
+不是最终 mask，且缺少指标文字。新精选 PNG 补齐了这些内容，旧图未覆盖。
+不能因文件名叫 `comparison.jpg` 就声称满足六面板评估契约，也不能声称全部 264 组旧图已修好。
+
+### 13.3 动漫风格来源与正例偏差
+
+已经核对原始 EntityBench 镜头提示词及实际生成配置：
+
+- PuLID run53/3:1 明确写 `In an animated medium shot ...`，官方要求动画风格；
+- PuLID run53/3:3 只描述 Kaito 在广场张望、产生灵感，没有明确动画要求；
+- IP run146/28:1（Nia 起床）和 run44/11:1（Daniel 在办公室走廊）都没有动画要求；
+  这些图的风格来自基础模型输出，具体成因尚未做受控实验，不可声称由上一镜头“记忆”导致；
+- PuLID 使用官方镜头提示词；IP 的 `_sdxl_prompt` 为 CLIP-77 调整动作/实体描述顺序，
+  保留原文，没有统一加动漫词，也没有强制所有镜头写实；
+- 身份参考与 3D 素材是写实资产。注入把动画脸拉向写实参考可能提高身份指标，同时破坏画风；
+  写实正例也有皮肤平滑、年龄感、表情和肤色变化，不能把正增量直接等同于全面视觉改善；
+- 首批按大增益选例，6 张中 4 张偏动画，不代表整个 132-shot 队列的风格比例。
+  两批 14 张写实正例是肉眼筛选的展示样本，尚未做全量风格标注/写实子集总体均值。
+
+第二批查看后因风格化而未纳入的 IP run1775/7:1、run444/4:1 图保留在
+`selected_positive_firstframes/realistic_review/excluded/`，原因见其 `README.md`；
+正式 benchmark 行仍保留，未据展示筛选删除或重算。
+
+### 13.4 接下来如何接着做
+
+1. 用户再要例子：从正式首帧 JSON 筛 `plugin_applied=true`，同时读两项 C/T/Δ，
+   先查看实际 Control/Treatment 风格、检测与可见变化，再按上述格式排版；不重跑生成。
+2. 需要写实子集结论时：先按可复核规则标注全部镜头风格，再报告人数、有效对、正负例、
+   四项绝对值和差值；不能将这 14 张挑选正例的均值当作正式写实子集结果。
+3. 用户若要求提交本次更新，使用 `$movie-github-ssh-push`；仅提交本次评测文档/相关说明，
+   保留 `docs/frontend_agent_architecture.md` 等用户改动，不提交 `outputs/`。
+
+## 14. 新增 20 episode 跨镜头人脸外观质心评测
+
+用户要求补充“外观质心相似度”。已在现有 20 episode PuLID-FLUX / IP-Adapter 的
+264 组首帧和视频配对上完成；没有重新生成图像/视频，没有改动原有评分、清单或 gate。
+Qwen 三 episode 不在这次新增范围内。
+
+- 入口：`pretest/evaluate_cross_shot_face_centroid.py`。
+- 回归测试：`tests/test_cross_shot_face_centroid.py`。
+- 报告根目录：`outputs/entitybench_firstframe_pulid_ip_20ep/cross_shot_evaluation/`。
+- 主报告：`face_centroid_evaluation.json` / `.md`；源文件完整性与独立复算见 `validation.json`。
+- `features/` 是源文件内容、模型与 bbox 参数共同确定的可恢复特征缓存；`crops/` 为实际评分图，
+  `audit/` 有 88 张跨镜头 C/T 联系表。原有六面板 `comparison.jpg` 未改写，旧格式缺口仍存在。
+
+计算口径：按路线、episode-local 角色分组，Control/Treatment 在相同的配对有效镜头集合上
+各自计算归一化 DINOv2 CLS 向量均值质心；每个镜头与该侧质心求 cosine，至少两个不同镜头。
+采用论文公式（质心包含该镜头自身），但沿用现有人脸 bbox、0.15 扩展裁剪和空间视频跟踪，
+不包含官方 GroundingDINO 全角色定位、CLIP 筛选、VLM fidelity gate；必须标为项目指标。
+视频从 5 个等距采样帧按清晰度×人脸面积选代表帧，不按身份 cosine 选帧，也不是逐帧均值。
+
+| 口径 | 路线 | 首帧有效角色-shot / C→T (Δ) | 视频代表帧有效角色-shot / C→T (Δ) |
+|---|---|---|---|
+| 全部单人，含安全复用 | PuLID-FLUX | 85 / 0.8925→0.8958 (+0.0033) | 91 / 0.8286→0.8338 (+0.0052) |
+| 全部单人，含安全复用 | IP-Adapter | 60 / 0.7783→0.8067 (+0.0284) | 78 / 0.7565→0.7647 (+0.0083) |
+| 仅实际注入，重算质心 | PuLID-FLUX | 78 / 0.9120→0.9159 (+0.0039) | 78 / 0.8581→0.8636 (+0.0055) |
+| 仅实际注入，重算质心 | IP-Adapter | 58 / 0.7836→0.8135 (+0.0299) | 61 / 0.7856→0.7946 (+0.0091) |
+
+每路线 132 个 shot 包含 54 个 episode 内角色，其中 29 个只出现一次；剩余 25 个角色的
+103 个 shot 是全量口径的潜在有效集合。缺失和单次出现有明确原因，不填零。
+路线/episode 均按可评分角色-shot 等权；仅注入子集独立重算质心。
+回退图像 C/T 相同，但因为其他镜头导致两侧质心不同，其质心分数 Δ 可以非零，不能强制置零。
+
+独立复算了 151 个有效角色组（两种口径×两种模态）、核对了 1,122 个输入/模型/原报告 SHA256，
+均通过；安全回退媒体哈希一致。已查看首帧/视频正负例及回退裁剪；正分数也可能伴随画风变化、
+鼻部异常、皮肤平滑或年龄感改变，不得表述为统一视觉改善。
+
+本轮新增质心评测使用 **CPU**：首帧/视频代表帧的 DINOv2 特征提取及质心汇总均在 CPU 上完成，
+参数为 `--device cpu --cpu-threads 1 --batch-size 1`。本轮执行环境无可用 GPU，CPU 配额约
+0.5 核、内存 2 GB；这不代表此前图像/视频生成或原四项评测也使用 CPU。
+7 项回归测试通过；续跑完整复用 1,056 条 appearance 特征记录，分数与首次完成的报告一致。
+汇总命中缓存时不加载模型；复现使用评估说明中的单线程命令。全部产物仍在忽略的 `outputs/` 下。
+本轮 Git 提交范围为质心评测脚本、回归测试、本文和 20 episode 评估说明；
+用户前端文档及其他已有未提交改动保留在本机，不纳入本轮提交。
