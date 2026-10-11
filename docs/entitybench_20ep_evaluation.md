@@ -237,6 +237,20 @@ CPU 配额约 0.5 核；该说明仅针对此次新增评测，不代表此前�
 用户的 `docs/frontend_agent_architecture.md` 改动及未跟踪 `experiment_output/` 必须保留。
 本轮新增质心评测脚本、测试及独立报告，并更新说明；没有重新运行生成或修改原四项指标分数。
 
+后续新实验见 [完整视频评测方案](entitybench_collage_vs_3d_evaluation_plan.md)：
+首轮单组，硬切复用已有合规PuLID-FLUX首帧，接续直接用本路线上一shot尾帧，不编辑或再次注入；
+使用普通Wan2.2-I2V-A14B，覆盖完整20episode/363shot（191硬切、172接续），官方三pillar为主表。
+多人硬切仍按现有路线使用基础/回退首帧，库存与缺失待逐个核验；不把单人132shot评测当作全剧本覆盖。
+IF/参考DINO/项目人脸质心作为辅助，旧5B结果不混入。独立镜头消融和拼贴/EntityMem对比后置。
+此项尚未启动，本轮仅更新方案，不属于本文已完成结果；旧5episode/41shot三组范围已被替换。
+
+2026-10-11 用户扩容并授权后，已启动普通 `Wan-AI/Wan2.2-I2V-A14B` 的后台下载，
+固定revision `206a9ee1b7bfaaf8f7e4d81335650533490646a3`，目标为
+`models/video/Wan2.2-I2V-A14B/`。官方33文件共117.54GiB，启动前可用152G。
+下载尚未完成；实时状态与日志见 `outputs/model_downloads/wan22_i2v_a14b/`，
+tmux会话为 `wan22_i2v_a14b_download`，支持断点续传与LFS权重SHA256校验。
+此授权仅涉及下载，新的视频生成/评测尚未运行，本文原有结果不变。
+
 ## 已展示 20 张图的完整索引
 
 | 批次 | 路线 / 镜头 / 角色 | 首帧 InsightFace C→T (Δ) | 首帧 DINOv2 C→T (Δ) | 六面板图 |
