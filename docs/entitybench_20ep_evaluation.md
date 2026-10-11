@@ -1,9 +1,19 @@
 # EntityBench 20 episode 评估说明与首帧对比图索引
 
-更新：2026-10-10（北京时间）。这是已有实验结果与展示图的交接说明；评测执行规则仍以
+更新：2026-10-12（北京时间）。这是已有实验结果与展示图的交接说明；评测执行规则仍以
 `/root/.codex/skills/evaluate-face-injection/SKILL.md` 为准。项目根目录为 `/root/autodl-tmp/movie`。
 
-## 当前完成范围
+**当前新实验：全部20episode / 363shot 已切到4步I2V-A14B尾帧接续路线，后台入口
+`pretest/run_entitybench_a14b_4step_20ep.py`，tmux `entitybench_a14b4step20`。**
+用户要求本轮只运行官方非VLM评价：6项VBench、GroundingDINO/CLIP实体出现率、
+DINOv2跨镜头`cs_face/cs_object`与真实接续边界；不运行下文历史项目IF/参考DINO/脸框质心。
+两镜头实际官方接入检查已通过、VLM调用0，正式363shot从头4步生成，完成后自动评测。
+旧40步队列停止并保留7个视频；旧5B配对实验结果仍有效，但不能混成新4步官方分数。
+新根目录`outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep/`；
+[当前方案](entitybench_collage_vs_3d_evaluation_plan.md)、[配置/执行记录](entitybench_a14b_4step_run.md)。
+VLM保真度gate缺失，跨镜头DINO结果标为暂定；尚未完成整批生成或正式评分。
+
+## 历史配对实验完成范围
 
 冻结清单覆盖 20 episode（Easy 11、Medium 6、Hard 3）的 363 个官方镜头，其中 132 个单人
 镜头进入 PuLID-FLUX 和 SDXL/IP-Adapter 两路线，共 264 组 Control/Treatment 配对。
@@ -251,6 +261,15 @@ IF/参考DINO/项目人脸质心作为辅助，旧5B结果不混入。独立镜�
 tmux会话为 `wan22_i2v_a14b_download`，支持断点续传与LFS权重SHA256校验。
 此授权仅涉及下载，新的视频生成/评测尚未运行，本文原有结果不变。
 
+以下是已被4步方案替代的40步历史启动记录：用户曾授权开始实验、VLM暂不测。A14B已下载并校验完成；两镜头接入测试通过，
+当前后台补111个缺失多人硬切基础首帧，之后单组生成完整363shot。
+正式参数为480P面积、81帧、16fps、40步、shift3、guidance=(3.5,3.5)、BF16与CPU offload。
+新输出 `outputs/entitybench_pulid_i2v_a14b_continuation_20ep/`，入口
+`pretest/run_entitybench_a14b_continuation_20ep.py`，tmux `entitybench_a14b20`；实时看 `status.json`。
+本轮官方非VLM部分将计算VBench、presence、DINO跨镜头及接续边界；VLM/gate未运行，
+跨镜头分数须标为暂定、部分评测，不能直接当作完整官方结果。项目身份辅助限132单人shot，
+多人/无人仍在全剧本生成与官方非VLM范围，辅助不可评分项明确记缺失；本文旧结果不变。
+
 ## 已展示 20 张图的完整索引
 
 | 批次 | 路线 / 镜头 / 角色 | 首帧 InsightFace C→T (Δ) | 首帧 DINOv2 C→T (Δ) | 六面板图 |
@@ -275,3 +294,30 @@ tmux会话为 `wan22_i2v_a14b_download`，支持断点续传与LFS权重SHA256�
 | 写实第二批 | IP-Adapter / run719 2:1 / Viktor | 0.3158→0.4327 (+0.1170) | 0.5512→0.6452 (+0.0939) | [打开](../outputs/entitybench_firstframe_pulid_ip_20ep/selected_realistic_positive_firstframes_batch2/ip_adapter_run719_shot_2_1.png) |
 | 写实第二批 | IP-Adapter / run1517 1:4 / Hyeon-sik | 0.3742→0.5330 (+0.1588) | 0.6992→0.7267 (+0.0275) | [打开](../outputs/entitybench_firstframe_pulid_ip_20ep/selected_realistic_positive_firstframes_batch2/ip_adapter_run1517_shot_1_4.png) |
 | 写实第二批 | IP-Adapter / run501 2:2 / Clara | 0.0221→0.1150 (+0.0929) | 0.5523→0.6285 (+0.0761) | [打开](../outputs/entitybench_firstframe_pulid_ip_20ep/selected_realistic_positive_firstframes_batch2/ip_adapter_run501_shot_2_2.png) |
+
+### 2026-10-11：加速小样本历史记录（当前已切4步全量）
+
+用户授权尝试LightX2V；见 [A14B加速试验](a14b_acceleration_trial.md)。
+独立环境和两份4step_1022蒸馏LoRA已准备，官方SHA256通过；
+固定run719的2:1及4:1→4:2，与已有正式视频比较生成耗时及身份诊断。
+小样本已完成：同一近景原版40步1238.2秒，LightX2V普通40步993.1秒（1.25×），
+蒸馏4步79.9秒（15.49×）；4:1、4:2各约93.6秒（约13×），均81帧/16fps/848×464。
+近景IF均值0.5817→0.6522、参考DINO0.5703→0.6637，CPU诊断已完成；
+远景IF0.0642→0.0575、DINO0.2973→0.3558，可检测帧范围不同；多人辅助缺失不填零。
+已查看完整对照表：4步近景转头较少、接续抽样出现第三个人，不能宣称质量等价。
+正式40步队列已恢复并校验6个已保存镜头，续跑run719 4:4；原manifest、视频/尾帧哈希不变。
+候选仅在`outputs/entitybench_a14b_acceleration_trial/`，未替换正式363shot配置或旧指标。
+详细耗时、加载适配、失败尝试与质量限制见加速试验文档、`report.md`及`quality/report.json`。
+
+
+## 2026-10-11 新4步实验与历史指标的边界
+
+新实验单组，完整363shot，不计算新的C/T增量。191个硬切复用合规旧首帧，172个接续
+使用同路线上一新4步视频尾帧；不二次编辑，不沿用该shot旧独立首帧或40步视频。
+官方采用GroundingDINO角色区域、CLIP×清晰度×bbox面积代表crop选择与DINO质心，
+之前的人脸框质心虽采用同一数学公式，裁剪/采样/集合不同，不能替代官方`cs_face`。
+官方原始代码revision、原文件/skip_vlm版SHA及补丁均冻结在新输出runtime/。
+本版本`VBENCH_DIMENSIONS`实际为6项，未启用background_consistency；旧“七项”描述不适用。
+预检用旧4步小样本在preflight/单独评分，正式视频与官方评价在videos/、evaluation/official/。
+实时完成数看generation_report.json，整体阶段看status.json；无VLM的正式完成状态应写
+“官方非VLM部分完成”，不写“官方全项完成”或与论文表格完全可比。

@@ -1,8 +1,24 @@
 # 3D 人脸一致性注入项目交接文档
 
-最后更新：2026-10-10（北京时间）。仓库：`/root/autodl-tmp/movie`。
+最后更新：2026-10-12（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
-最新进展：PuLID-FLUX、SDXL/IP-Adapter 的 20 episode 单人首帧与视频评测已完成，
+**当前后台任务（2026-10-11 23:53启动）：20episode / 363shot 全部改用LightX2V 4步蒸馏
+Wan2.2-I2V-A14B，硬切复用191个已核验首帧，172个接续仅使用本路线上一视频尾帧，不再次注入。**
+用户确认仍跳过VLM，本轮只跑官方非VLM指标，不运行项目IF/参考DINO/脸框质心辅助。
+官方实际6项VBench、GroundingDINO/CLIP实体出现率、DINO跨镜头与接续边界评测已通过
+两镜头实际接入检查（40秒，零VLM调用）；这些检查结果不进入正式评分。
+旧40步队列已按要求停止，7个完整镜头保留，不混入新4步视频。
+
+- 当前入口：`pretest/run_entitybench_a14b_4step_20ep.py`，tmux `entitybench_a14b4step20`。
+- 新输出：`outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep/`；状态`status.json`，
+  逐镜头进度`generation_report.json`，日志`pipeline.log`及`logs/generate_formal.log`。
+- 完成生成后自动审计363个来源/尾帧依赖、拼接20条episode，再运行官方非VLM评测。
+- 最新[完整方案](docs/entitybench_collage_vs_3d_evaluation_plan.md)、
+  [4步执行/续跑说明](docs/entitybench_a14b_4step_run.md)。旧40步计划和下面的配对结果是历史记录。
+- 4步小样本平均89秒/shot，纯生成粗估约9小时，评测/重试另计；尚未生成/评完整批。
+- VLM外观保真度gate缺失，因此官方`cs_face/cs_object`暂定，不能直接冒充完整论文表格分数。
+
+历史已完成结果：PuLID-FLUX、SDXL/IP-Adapter 的 20 episode 单人首帧与视频评测已完成，
 详见第 11、12 节。528/528 个视频任务完成，失败 0；2026-10-10 核对时 tmux 无运行会话。
 本会话后续补齐了四项指标解释、动漫风格来源核查和 20 张首帧正例对比图（其中 14 张为
 两批写实正例）。新窗口先读第 13 节和 [20 episode 评估说明](docs/entitybench_20ep_evaluation.md)。
@@ -573,3 +589,55 @@ Qwen 三 episode 不在这次新增范围内。
 （`status.json`、`manifest.json`、`download.log`）；当前已开始传输，**尚未完成**。
 Hub客户端HTTPS连接失败后已改用aria2；后续以实时 `status.json` 为准，
 只有 `state=complete` 才表示全部文件大小及LFS校验通过。没有运行模型、生成视频或重新评测。
+
+### 2026-10-11：旧40步接续实验启动记录（已由第16节替代）
+
+A14B已于北京时间16:06完成33文件下载与LFS校验。用户明确要求开始实验、VLM先不测。
+新后台入口 `pretest/run_entitybench_a14b_continuation_20ep.py`，tmux `entitybench_a14b20`；
+输出独立保存在 `outputs/entitybench_pulid_i2v_a14b_continuation_20ep/`，以其 `status.json` 为实时状态。
+先核验并复用80个有效硬切首帧（56单人注入、18安全回退、6多人基础）；
+缺失111个多人硬切使用现有零身份权重FLUX基础生成器补齐，不做多人注入、不改旧产物。
+run719的4:1→4:2两镜头接入测试已完成：81帧/16fps/6步，峰值CUDA allocated约41.1GiB；
+第二镜头输入与上一视频真实解码尾帧SHA256一致。测试隔离在smoke，不能进入正式报告。
+正式固定480P面积（max_area=832×480，按输入比例，样例848×464）、81帧、16fps、40步、
+UniPC、shift3、guidance=(3.5,3.5)、BF16与CPU offload。随后单组生成全部363shot/20episode。
+8项依赖续跑测试通过，模型加载与GPU推理已实测；同一GPU上各阶段顺序运行。
+非VLM评测沿用本地审计过的skip_vlm适配，官方原始入口/适配/patch都冻结在runtime；
+VLM与保真度gate未运行，跨镜头分数暂定，不能直接当成论文完整官方分数；API缺失项不填零。
+项目身份辅助仍限132单人shot，全部多人/无人shot保留在官方非VLM范围并明确辅助缺失。
+本轮尚在运行，不能报告363shot生成或评测已完成；旧结果不变。未自动提交或推送新代码。
+
+### 2026-10-11：加速小样本历史记录（当前已切4步全量）
+
+用户授权尝试LightX2V；见 [A14B加速试验](docs/a14b_acceleration_trial.md)。
+独立环境和两份4step_1022蒸馏LoRA已准备，官方SHA256通过；
+固定run719的2:1及4:1→4:2，与已有正式视频比较生成耗时及身份诊断。
+小样本已完成：同一近景原版40步1238.2秒，LightX2V普通40步993.1秒（1.25×），
+蒸馏4步79.9秒（15.49×）；4:1、4:2各约93.6秒（约13×），均81帧/16fps/848×464。
+近景IF均值0.5817→0.6522、参考DINO0.5703→0.6637，CPU诊断已完成；
+远景IF0.0642→0.0575、DINO0.2973→0.3558，可检测帧范围不同；多人辅助缺失不填零。
+已查看完整对照表：4步近景转头较少、接续抽样出现第三个人，不能宣称质量等价。
+正式40步队列已恢复并校验6个已保存镜头，续跑run719 4:4；原manifest、视频/尾帧哈希不变。
+候选仅在`outputs/entitybench_a14b_acceleration_trial/`，未替换正式363shot配置或旧指标。
+详细耗时、加载适配、失败尝试与质量限制见加速试验文档、`report.md`及`quality/report.json`。
+
+
+## 16. 2026-10-11：用户选定4步全量与官方非VLM评测
+
+当前任务覆盖原20episode全部363shot（单人132、多人230、无人1），单组系统路线。
+191个硬切中56个实际中间步注入、18个安全回退、117个多人基础首帧；多人不新增注入。
+旧40步准备阶段补齐的111个多人基础首帧作为图像资产继续复用，旧视频不复用。
+4步条件是原A14B加high/low rank64 `4step_1022` LoRA，DMD2、shift5、CFG关闭，
+81帧/16fps、480p面积、BF16/torch_sdpa；完整版本、SHA和环境见执行说明。
+
+使用evaluate-face-injection skill审计来源、缺失、覆盖率和续跑，但用户明确要求本轮官方指标，
+故不执行skill旧配对IF/参考DINO流程。官方原始入口、skip_vlm适配和补丁同时冻结，
+检测/crop/代表帧/特征/质心/VBench评分逻辑保持官方版本；missing API项不填零。
+新生成和评测都使用GPU，GPU阶段顺序独占；日志、全镜头审计和逐episode覆盖须实际检查，
+不能因tmux启动或脚本退出就称整批完成。当前后台生成中，正式评分在363shot完整后自动开始。
+续跑必须核验模型/LoRA/实现/脚本/seed/输入/父视频/输出SHA；旧40步不得自动恢复。
+官方缓存另绑定363视频SHA，视频改变时拒绝复用旧分数，应使用新评测目录。
+
+正式首段run719 1:1已完成，81帧/16fps/848×464，耗时84.5秒；后续队列继续。
+9项新协议测试及8项旧尾帧续跑测试通过，编译与diff检查通过。不同窗口的重复run
+以完整episode_id命名浏览成片，避免覆盖；正式评测一直使用完整episode_id。
