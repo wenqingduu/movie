@@ -2,12 +2,45 @@
 
 最后更新：2026-10-12（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
-**当前后台任务（2026-10-11 23:53启动）：20episode / 363shot 全部改用LightX2V 4步蒸馏
+
+**当前任务已切换（2026-10-12 21:03）：用户要求停止FLUX全140，先跑Qwen同一20episode。**
+FLUX全140已停止，`status.json`为`paused_by_user`，新增可注入标定144/217完成并保留。
+原FLUX20episode/363视频及官方非VLM分数已完成，保持只读，作为同范围系统路线比较基准。
+Qwen新队列21:12启动，tmux `entitybench_qwen21_a14b4step20`，只覆盖冻结20episode/363shot，
+不自动扩展全140、不新增消融视频组。当前入口`pretest/run_entitybench_qwen21_20ep_accelerated.py`（原始核心路线不变），
+输出`outputs/entitybench_qwen21_i2v_a14b_4step_continuation_20ep/`，整体进度看status.json，
+总日志`outputs/entitybench_qwen21_20ep_pipeline.log`，各阶段日志在新输出logs/。
+112个硬切角色生成新Qwen素材，40个单角色硬切角色有3D准备资格；其他19个仅接续角色
+不额外造参考，原全部131角色调度保留。新素材要重新FaceLift/标定，不能借用旧SDXL Gaussian。
+已核验本机7份Qwen权重SHA并进入实际素材生成，首个候选107.3秒已保存。
+然后两路新资产准备、191硬切首帧、363新A14B视频（172自己的尾帧接续）、来源审计，
+再按evaluate-face-injection-v2两路官方非VLM评分及FLUX/Qwen同范围比较。
+已有FLUX正式评分虽为串行，v2重新聚合和22视频并发一致性已验证，不因新调度重跑旧分数。
+VLM仍跳过，保真度gate缺失，cs_face/cs_object暂定；旧三episode身份指标不混入官方表。
+22:59完成独立设备放置/两路吞吐验证，素材阶段改为单进程CUDA驻留：两候选各约21秒，
+原各约105秒；两图PNG SHA完全一致。显存约37–38GiB，29份完整素材保留校验复用。
+两进程model offload两图约89秒，慢于CUDA驻留两图42秒；不使用素材双进程。
+源码/角色/seed/40步原计划冻结，变更证据在runtime/reference_acceleration.json。
+首帧仍sequential offload（多参考驻GPU未测），标定两路、视频与官方v2不变。
+当前磁盘约18.5GiB空闲，阶段保留5GiB守护，不自动删历史；各GPU阶段分开。
+详见[Qwen20episode运行说明](docs/entitybench_qwen21_20ep_run.md)、
+[下一步计划与已有Qwen证据](docs/entitybench_qwen21_next_experiment_plan.md)。
+全140暂停产物见[原完整140说明](docs/entitybench_a14b_full140_run.md)。
+
+**本轮实验（2026-10-11 23:53启动）：20episode / 363shot 全部改用LightX2V 4步蒸馏
 Wan2.2-I2V-A14B，硬切复用191个已核验首帧，172个接续仅使用本路线上一视频尾帧，不再次注入。**
 用户确认仍跳过VLM，本轮只跑官方非VLM指标，不运行项目IF/参考DINO/脸框质心辅助。
 官方实际6项VBench、GroundingDINO/CLIP实体出现率、DINO跨镜头与接续边界评测已通过
 两镜头实际接入检查（40秒，零VLM调用）；这些检查结果不进入正式评分。
 旧40步队列已按要求停止，7个完整镜头保留，不混入新4步视频。
+**当前状态：2026-10-12 09:41已生成363/363镜头，失败0；10:42官方非VLM
+20/20 episode评分完成、VLM调用0，363来源/172接续通过审计，人工效果审查仍待完成。**
+
+后续官方评测使用新skill
+[evaluate-face-injection-v2](/root/.codex/skills/evaluate-face-injection-v2/SKILL.md)：
+默认单卡2进程、按完整episode分片，每路4个CPU线程、独立缓存、最后官方统一聚合。
+先测小样本吞吐和分数一致性再调3/4路；本轮已完成的分数无需因新skill重跑。
+旧skill保留用于配对InsightFace/参考DINO身份诊断。
 
 - 当前入口：`pretest/run_entitybench_a14b_4step_20ep.py`，tmux `entitybench_a14b4step20`。
 - 新输出：`outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep/`；状态`status.json`，
@@ -15,7 +48,7 @@ Wan2.2-I2V-A14B，硬切复用191个已核验首帧，172个接续仅使用本�
 - 完成生成后自动审计363个来源/尾帧依赖、拼接20条episode，再运行官方非VLM评测。
 - 最新[完整方案](docs/entitybench_collage_vs_3d_evaluation_plan.md)、
   [4步执行/续跑说明](docs/entitybench_a14b_4step_run.md)。旧40步计划和下面的配对结果是历史记录。
-- 4步小样本平均89秒/shot，纯生成粗估约9小时，评测/重试另计；尚未生成/评完整批。
+- 首轮全量生成与官方非VLM评分均已完成；历史小样本89秒/shot估算不再是实时进度。
 - VLM外观保真度gate缺失，因此官方`cs_face/cs_object`暂定，不能直接冒充完整论文表格分数。
 
 历史已完成结果：PuLID-FLUX、SDXL/IP-Adapter 的 20 episode 单人首帧与视频评测已完成，
@@ -641,3 +674,12 @@ VLM与保真度gate未运行，跨镜头分数暂定，不能直接当成论文�
 正式首段run719 1:1已完成，81帧/16fps/848×464，耗时84.5秒；后续队列继续。
 9项新协议测试及8项旧尾帧续跑测试通过，编译与diff检查通过。不同窗口的重复run
 以完整episode_id命名浏览成片，避免覆盖；正式评测一直使用完整episode_id。
+
+## 17. 2026-10-12：官方评测skill v2与后续并发偏好
+
+用户要求后续评测并发。新skill已安装在`/root/.codex/skills/evaluate-face-injection-v2/`，
+含官方口径说明、单GPU多进程入口、分片续跑/汇总及验证脚本。原始评分函数不改；
+当前默认官方非VLM，缺失gate时cs_face/cs_object仍标为暂定。两路分片按182/181个shot
+分配完整episode；缓存汇总与原官方all/easy/medium/hard报告完全一致，9项回归检查通过。
+实际两路神经网络推理提速尚未实测；下一次获授权的评测先做代表性小样本测吞吐/显存/
+主存与逐episode分数一致性，然后并发全量。新入口不生成视频、不自动启用收费VLM或推送GitHub。

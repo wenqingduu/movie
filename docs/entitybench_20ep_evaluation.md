@@ -1,17 +1,25 @@
 # EntityBench 20 episode 评估说明与首帧对比图索引
 
-更新：2026-10-12（北京时间）。这是已有实验结果与展示图的交接说明；评测执行规则仍以
-`/root/.codex/skills/evaluate-face-injection/SKILL.md` 为准。项目根目录为 `/root/autodl-tmp/movie`。
+更新：2026-10-12（北京时间）。这是已有实验结果与展示图的交接说明；历史配对身份评测使用
+`/root/.codex/skills/evaluate-face-injection/SKILL.md`；后续官方评测使用
+[evaluate-face-injection-v2](/root/.codex/skills/evaluate-face-injection-v2/SKILL.md)。项目根目录为 `/root/autodl-tmp/movie`。
 
 **当前新实验：全部20episode / 363shot 已切到4步I2V-A14B尾帧接续路线，后台入口
 `pretest/run_entitybench_a14b_4step_20ep.py`，tmux `entitybench_a14b4step20`。**
 用户要求本轮只运行官方非VLM评价：6项VBench、GroundingDINO/CLIP实体出现率、
 DINOv2跨镜头`cs_face/cs_object`与真实接续边界；不运行下文历史项目IF/参考DINO/脸框质心。
-两镜头实际官方接入检查已通过、VLM调用0，正式363shot从头4步生成，完成后自动评测。
+正式363/363镜头于2026-10-12 09:41生成完成、失败0；10:42官方非VLM
+20/20 episode评分完成，VLM调用0；来源/接续/成片审计通过，人工效果审查仍待完成。
 旧40步队列停止并保留7个视频；旧5B配对实验结果仍有效，但不能混成新4步官方分数。
 新根目录`outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep/`；
 [当前方案](entitybench_collage_vs_3d_evaluation_plan.md)、[配置/执行记录](entitybench_a14b_4step_run.md)。
-VLM保真度gate缺失，跨镜头DINO结果标为暂定；尚未完成整批生成或正式评分。
+VLM保真度gate缺失，跨镜头DINO结果标为暂定；生成与非VLM评分已完成。
+后续按用户偏好默认单卡两路评测，每路完整episode、独立工作/缓存目录，最后官方统一汇总；
+CPU线程、主存及GPU吞吐同时核验，实际加速倍数由后续小样本测量。
+
+**后续已授权扩到完整140episode：**保留本页20episode结果，新队列详见
+[完整140执行说明](entitybench_a14b_full140_run.md)。新增角色先准备/标定再做硬切首帧，
+新生成2,128视频；沿用4步与官方非VLM，评分按v2并发。
 
 ## 历史配对实验完成范围
 
@@ -321,3 +329,19 @@ tmux会话为 `wan22_i2v_a14b_download`，支持断点续传与LFS权重SHA256�
 预检用旧4步小样本在preflight/单独评分，正式视频与官方评价在videos/、evaluation/official/。
 实时完成数看generation_report.json，整体阶段看status.json；无VLM的正式完成状态应写
 “官方非VLM部分完成”，不写“官方全项完成”或与论文表格完全可比。
+
+### 2026-10-12全140续跑的适用范围
+
+全量新增资产阶段因犬类Blaze误进入人脸3D流程而停止，20:28已修正路由并恢复。
+原20episode及本文分数不变；新增9个动物/玩偶等非人脸角色的11个硬切用基础首帧，
+所有2,491镜头仍保留。实际新增人脸3D角色217个，116个校验复用、101个待补；
+341个插件候选硬切、604个基础硬切，接续仍只用自己的尾帧，官方非VLM评测范围不变。
+见[全140运行说明](entitybench_a14b_full140_run.md)与输出face_injection_routing.json。
+
+### 2026-10-12 21:03切换到Qwen同范围最终路线
+
+用户要求暂停FLUX全140（新增标定144/217保留），先跑相同冻结20episode/363shot的Qwen路线。
+21:12新队列已启动，使用Qwen原生素材和首帧、新对应3D/标定、同一4步A14B及自己尾帧接续，
+只评最终一组视频，不追加消融组、不自动扩全量。当前FLUX20episode官方分数保留为基准。
+新Qwen按v2两进程官方非VLM评分；原FLUX串行评分已通过v2聚合与小样本并发一致性核验，
+无须仅为并发形式重跑。详见[Qwen20episode运行说明](entitybench_qwen21_20ep_run.md)。

@@ -120,6 +120,8 @@ def run(args) -> dict:
     episode = json.loads(episode_path.read_text(encoding="utf-8"))
     episode_id = episode_path.stem
     selected_keys = set(args.shot) if args.shot else None
+    if getattr(args, 'allow_selected_only', False) and not selected_keys:
+        raise ValueError('--allow-selected-only requires explicit --shot selections')
     report_path = output_dir / "pulid_first_frame_report.json"
     wan_manifest_path = output_dir / "wan_manifest_single_character.json"
     ordered_single_shots = [
@@ -322,7 +324,7 @@ def run(args) -> dict:
         shot["shot_key"] for shot in ordered_single_shots
         if shot["shot_key"] not in {item["shot_key"] for item in report["shots"]}
     ]
-    if missing:
+    if missing and not getattr(args, 'allow_selected_only', False):
         raise RuntimeError(
             "Incremental report is missing unselected single-character shots; "
             "rerun without --shot first: " + ", ".join(missing)
@@ -359,6 +361,8 @@ def parse_args():
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--asset-root", required=True)
     parser.add_argument("--shot", action="append", default=[])
+    parser.add_argument("--allow-selected-only", action="store_true",
+                        help="Permit an explicitly selected hard-cut subset while preserving original shot indices")
     parser.add_argument("--python", default=str(PROJECT_ROOT / ".venv/bin/python"))
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=352)

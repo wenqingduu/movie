@@ -561,6 +561,8 @@ def run_shot(
         "peak_cuda_memory_mib": round(torch.cuda.max_memory_allocated() / 1024**2, 2),
     }
     _write(output_dir / "result.json", result)
+    if not getattr(args, 'evaluate_identity', True):
+        return result
     try:
         metrics = evaluate_pair(
             SimpleNamespace(

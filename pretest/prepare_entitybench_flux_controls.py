@@ -62,6 +62,18 @@ def _ordered_shots(episode: dict) -> list[dict]:
     return shots
 
 
+def _select_basic_shots(episode, selected, allow_single_basic=False):
+    if allow_single_basic and not selected:
+        raise ValueError('--allow-single-basic requires an explicit --shot list')
+    ordered = _ordered_shots(episode)
+    if selected:
+        unknown = set(selected) - {s['shot_key'] for s in ordered}
+        if unknown:
+            raise ValueError(f'Unknown selected shots: {sorted(unknown)}')
+    return [s for s in ordered if (allow_single_basic or len(s['characters']) != 1)
+            and (selected is None or s['shot_key'] in selected)]
+
+
 def run(args) -> dict:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required")
@@ -69,11 +81,7 @@ def run(args) -> dict:
     output_dir = Path(args.output_dir).resolve()
     episode = json.loads(episode_path.read_text(encoding="utf-8"))
     selected = set(args.shot) if args.shot else None
-    shots = [
-        shot for shot in _ordered_shots(episode)
-        if len(shot["characters"]) != 1
-        and (selected is None or shot["shot_key"] in selected)
-    ]
+    shots = _select_basic_shots(episode, selected, getattr(args, 'allow_single_basic', False))
     if not shots:
         raise ValueError("No non-single-character shots selected")
     neutral_reference_path = Path(args.neutral_reference).resolve()
@@ -269,6 +277,7 @@ def parse_args():
     parser.add_argument("--episode", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--shot", action="append", default=[])
+    parser.add_argument('--allow-single-basic', action='store_true', help='Explicitly selected basic single-entity shots without identity conditioning or face injection')
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=352)
     parser.add_argument("--steps", type=int, default=50)

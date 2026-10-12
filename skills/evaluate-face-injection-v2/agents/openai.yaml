@@ -1,0 +1,4 @@
+interface:
+  display_name: "Face Injection Evaluation v2"
+  short_description: "Official EntityBench evaluation with GPU concurrency"
+  default_prompt: "Use $evaluate-face-injection-v2 to evaluate the requested movie videos with official EntityBench non-VLM metrics and bounded episode concurrency."
