@@ -1,5 +1,18 @@
 # Qwen：相同20episode的最终路线实验
 
+**2026-10-14最新补充：只裁脸评分已完成，Qwen为0.8225，共同16集／126项为0.8323。**
+三路线完整原指标与脸部版本见[当前结果汇总](entitybench_results_20ep_20261014.md)、[脸部协议](entitybench_face_only_dino_20ep_run.md)。
+视频已是LightX2V四步蒸馏，363段平均95.904秒，视频阶段9.672小时；本路线全部本地、无API。
+扩全140复用现有20集预计另需4–5天，见[实测依据与预算](entitybench_qwen21_full140_estimate.md)；仅估算，未启动。
+以下启动进度、磁盘空间及队列描述保留为历史记录，不能视为当前仍在运行。
+
+**2026-10-14指标审计：[人物裁剪污染与边界口径](entitybench_metric_provenance_audit_20261014.md)。**
+Qwen Casey也有油桶误入人物crop；cs_face为暂定人物区域外观相似度，不等于脸部身份准确度。
+原报告数值不变，boundary不与论文直接排名；全140保持停止，VLM未调用。
+
+**最新完成状态（2026-10-13）：北京时间14:09已完成Qwen20/363官方非VLM评分并归档；16:48之后独立核验通过。下面11:30进度为历史快照。**
+结果见[论文/FLUX/Qwen完整对比](../outputs/entitybench_paper_flux_qwen20_comparison/README.md)，[完成核验](../outputs/entitybench_paper_flux_qwen20_comparison/review/final_integrity_audit.md)。全量人工审片仍待完成，FLUX全140保持暂停。
+
 2026-10-12北京时间21:03用户要求停止FLUX全140扩展，改跑已有官方评测的同一20episode。
 新Qwen队列21:12启动。只生成最终一组视频，不追加无插件视频组，暂不扩展到140episode。
 
@@ -99,3 +112,47 @@ VLM仍跳过，gate不可用，跨shot分数暂定，scope=`partial_without_vlm`
 明确仅素材阶段改变设备放置。后续首帧仍用已验证的sequential offload，标定仍两路，
 视频和官方评价不变；多参考首帧GPU驻留还未测，不直接套用该结果。
 新增2项重定向/输出一致性准入检查通过；原队列已恢复到同名tmux。
+
+## 2026-10-13初步结果归档
+
+用户要求保留论文、已有FLUX和本轮Qwen结果供初步观察。
+归档目录`outputs/entitybench_paper_flux_qwen20_comparison/`，README.md为对比表，
+comparison.json为机器可读总表，paper_reference.json保存论文四个方法的12项共同非VLM指标与来源，
+flux20_official_report.json为原始报告副本。Qwen完成20episode/363shot评分覆盖后，
+自动保存qwen20_official_report.json及分片完成状态，填入对比表，未完成值保持null。
+归档入口`pretest/archive_entitybench_preliminary_results.py --wait`，独立tmux
+`entitybench_results_archive20`，只读报告、写归档，不改变生成或评价代码。
+论文140episode与项目20episode、gate/聚合/素材/视频条件差异均在表中标记；不作严格排名。
+
+首帧目录为本输出firstframes/；每个完整episode_id/shot_SCENE_SHOT/frame_record.json
+的final_image指定实际送入视频的文件。注入镜头通常是treatment.png，基础镜头是final.png，
+control.png为算法内部基础轨迹。全部原始首帧/视频仍在本机outputs中，不随Git代码推送。
+
+## 2026-10-13 11:30交接快照
+
+素材112/112、有效标定39/39、首帧191/191完成；首帧66实际注入、125未注入，
+其中117多人、6目标缺可靠脸、1参考gate、1闭眼gate。视频约292/363，失败0，正在生成，
+之后自动官方非VLM评分和归档。当前均值约95秒/视频；快照预计约13:30–15:00完成评分，
+仅为估计。详细边界和续跑检查见[新窗口交接](LLM_HANDOFF_QWEN20_20261013.md)，
+[接续提示词](qwen20_new_window_prompt.md)。本快照未改冻结模型/生成代码，也未重启正常队列。
+
+## 2026-10-13 16:48后：Qwen20完成及结果核验
+
+北京时间14:09已完成当前冻结20episode/363shot生成及官方非VLM评分；363段全部generated、失败0。主队列与归档watcher已正常结束，FLUX全140 pane仍停止、状态paused_by_user；未扩全量、未加消融、未执行VLM。
+
+评分按v2两路完整episode分片182/181 shot、各4线程，墙钟2438.96秒（约40.6分钟）。六项VBench每项363镜头覆盖、失败0；VLM调用/密钥均0，strict=true、无config override、scope=partial_without_vlm。39项VLM指标缺失保留null；cs_face/cs_object因无fidelity gate仍为暂定。官方cs_object有20有效episode，FLUX为19；边界两路各19有效episode、172接续对，另一episode无接续。
+
+独立核验通过：完整/不重复episode集合、363 canonical video映射及SHA、191最终首帧来源、172子镜头输入与独立解码父视频尾帧逐像素一致、363官方逐shot entity schedule记录、两个worker manifest和原FLUX评分配置/库/模型一致、204个官方聚合字段一致。固定revision上游原版代码SHA与冻结副本一致。冻结生成源码、原FLUX报告、全140暂停状态、用户其他未提交文件SHA均保持。
+
+| 指标 | FLUX20 | Qwen20 | Qwen−FLUX |
+|---|---:|---:|---:|
+| 角色出现率 | 0.8649 | 0.9335 | +0.0686 |
+| 场景出现率 | 0.7032 | 0.6279 | -0.0753 |
+| cs_face（暂定，角色区域质心） | 0.6853 | 0.6958 | +0.0105 |
+| cs_object（暂定） | 0.7964 | 0.8186 | +0.0222 |
+| dynamic_degree | 0.5930 | 0.4866 | -0.1064 |
+| imaging_quality | 63.0349 | 60.2959 | -2.7390 |
+
+完整论文四方法/FLUX/Qwen12共同指标表：outputs/entitybench_paper_flux_qwen20_comparison/README.md；原始两路线报告、总JSON、20episode结果及冻结来源已保存到同目录和provenance/。核验见review/final_integrity_audit.json/md；12组已有视频连续帧图与原视频链接见review/video_samples.md，抽样观察见review/visual_review.md。review/viewer.html可选择20episode同步查看两路成片。
+
+结果表现混合：角色出现率及跨shot相似度较高，动态程度、场景出现率和画质较低；不能宣称整体提升或插件因果收益。论文全140与项目20episode、VLM gate和聚合不同，仅供初步观察。已查看单人、多人、回退、接续、动画及低分代表镜头，不宣称全363镜头人工审查完成；保留官方完成状态official_non_vlm_complete_pending_visual_review。没有提交或推送Git。
