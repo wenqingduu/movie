@@ -57,7 +57,7 @@
 不恢复“根据最终Control准备3D、再从噪声重跑Treatment”的历史两遍式。
 现有有效首帧算法是从中间 pred_x0 检测/估姿态/准备v7 reference，再从同一中间latent继续去噪。
 PuLID-FLUX以既有实验实际配置为准，不把Qwen的step12调度复制到Flux。
-依据：[交接文档统一协议](../LLM_HANDOFF.md#31-统一执行协议不得自行改动)。
+依据：[交接文档统一协议](history/LLM_HANDOFF_experiments_20261014.md#31-统一执行协议不得自行改动)。
 
 接续必须来自同一episode、同一路线、紧邻上一shot；不借用历史TI2V-5B视频、Control视频、
 其他episode或不相邻镜头的尾帧。上一shot生成失败，则后续依赖它的接续链标为dependency blocked，

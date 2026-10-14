@@ -1,7 +1,7 @@
 # 当前20集三路线结果汇总（2026-10-14）
 
 三路线各20个完整episode／363视频，生成失败0；旧SDXL→FLUX、Qwen、新摄影版FLUX已完成官方非VLM评分及独立核验。
-FLUX全140仍paused_by_user；Qwen全140仅有[耗时估算](entitybench_qwen21_full140_estimate.md)，未启动。
+FLUX全140仍paused_by_user；用户决定后续统一Qwen并[交接全140](LLM_HANDOFF_QWEN140_20261014.md)，已有[耗时／存储预算](entitybench_qwen21_full140_estimate.md)，尚未启动。
 以下数值从已完成原始报告及脸部版本report.json读取，不覆盖原报告。完整视频、权重、PNG、原始JSON与查看页只保留在本机outputs，不随Git推送。
 
 ## 原人物区域官方非VLM结果

@@ -1,5 +1,7 @@
 # 新窗口接续提示词（2026-10-14）
 
+本文是已完成20集的只读核验提示词；用户后续决定统一Qwen扩全140，改用[Qwen140提示词](qwen140_new_window_prompt.md)。下面旧范围保留，不作为最新全量任务指令。
+
 复制下面这段给新窗口：
 
 > 请先完整阅读 `/root/autodl-tmp/movie/LLM_HANDOFF.md`、

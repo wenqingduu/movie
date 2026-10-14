@@ -1,0 +1,90 @@
+{
+  "snapshot_beijing": "2026-10-14T21:42:53.641062+08:00",
+  "kind": "read_only_disk_budget_no_generation",
+  "source_root": "/root/autodl-tmp/movie/outputs/entitybench_qwen21_i2v_a14b_4step_continuation_20ep",
+  "source_plan_sha256": "bb9b3749fc0ba84448b13c4a8cd29b42e9aafaa0cc8b89598df1ef2c90cf05fb",
+  "full_plan": "/root/autodl-tmp/movie/outputs/entitybench_pulid_i2v_a14b_4step_full140/expansion_plan.json",
+  "full_plan_sha256": "fa175ffe1dbccbced8aa0f93c90e1d299c4848c724684d9f9bc07471ebb36aff",
+  "existing_counts": {
+    "episodes": 20,
+    "shots": 363,
+    "references": 112,
+    "candidates": 192,
+    "ready_3d": 39,
+    "hardcuts": 191
+  },
+  "measured_allocated_bytes": {
+    "assets": 4459581440,
+    "firstframes": 318226432,
+    "videos": 357089280,
+    "inputs": 206307328,
+    "episodes": 148914176,
+    "evaluation": 232493056,
+    "audit": 29429760,
+    "runtime": 552960,
+    "logs": 8302592
+  },
+  "asset_allocated_bytes": {
+    "reference_and_candidates": 413835264,
+    "3d_and_calibration": 4045746176
+  },
+  "estimated_new_counts": {
+    "new_episodes": 120,
+    "new_shots": 2128,
+    "new_hardcuts": 945,
+    "new_continuations": 1183,
+    "new_reference_roles": 711,
+    "new_single_role_keys": 226,
+    "estimated_candidates": 1163
+  },
+  "extrapolation_bytes": {
+    "references": 2506720896.0,
+    "three_d_upper": 23444580404.51282,
+    "firstframes": 1574471090.26178,
+    "videos_inputs_concat": 4175750270.9421487,
+    "official_eval": 1362934499.0853994
+  },
+  "disk": {
+    "total": 343597383680,
+    "used": 313592541184,
+    "free": 30004842496
+  },
+  "recommendation": {
+    "new_artifacts_gib": [
+      30,
+      40
+    ],
+    "free_before_start_gib": 60,
+    "additional_capacity_gib": [
+      40,
+      60
+    ]
+  },
+  "exclusions": "No new model download/copy; existing20 reused only after full compatibility audit; cloud APIs/VLM/generation not called by this budget audit",
+  "post_A1_cleanup": {
+    "data_disk": {
+      "total": 343597383680,
+      "used": 279435132928,
+      "free": 64162250752
+    },
+    "proof_path": "/root/autodl-tmp/movie/outputs/disk_cleanup_review_20261014/delete_A1_result.json",
+    "reclaimed_gib": 31.854267120361328,
+    "current_free_gib": 59.75575256347656,
+    "recommendation": "Original additional-capacity recommendation was before cleanup; now near60GiB free, reassess new30–40GiB artifact budget and minimum10GiB guard; no mandatory expansion solely to cross60GiB",
+    "system_disk_free_gib": 2.1510086059570312
+  },
+  "post_system_pip_cleanup": {
+    "proof_path": "/root/autodl-tmp/movie/outputs/disk_cleanup_review_20261014/delete_pip_cache_and_unpack_result.json",
+    "system_disk": {
+      "total": 32212254720,
+      "used": 22225154048,
+      "free": 9987100672
+    },
+    "data_disk": {
+      "total": 343597383680,
+      "used": 279444299776,
+      "free": 64153083904
+    },
+    "other_tmp_deleted": false
+  }
+}

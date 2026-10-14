@@ -1,0 +1,198 @@
+{
+  "snapshot_beijing": "2026-10-14T21:53:06.955508+08:00",
+  "status": "A1_and_approved_system_pip_cleanup_completed_other_candidates_pending",
+  "scope": "proposed deletions need explicit user confirmation",
+  "data_disk": {
+    "total": 343597383680,
+    "used": 313592692736,
+    "free": 30004690944
+  },
+  "recommended_ids": [
+    "A1",
+    "A2",
+    "A3"
+  ],
+  "recommended_reclaimed_bytes": 39440625664,
+  "estimated_data_disk_free_after_recommended_bytes": 69445316608,
+  "keep": [
+    "models/diffusion/qwen-image-2.1",
+    "models/video/Wan2.2-I2V-A14B",
+    "models/video/Wan2.2-LightX2V-Distill-Loras",
+    "third_party/FaceLift/checkpoints",
+    "third_party/PuLID/models/antelopev2",
+    "/root/autodl-tmp/models (EntityBench encoders/grounding/VBench)",
+    "all existing model runtime environments",
+    "all three official20 outputs/archives",
+    "outputs/entitybench_firstframe_pulid_ip_20ep and historic Qwen control/treatment ablation results",
+    "outputs/entitybench_face_only_dino_20ep_20261014",
+    "outputs/entitybench_cs_face_corrected_character_crops_20ep_20261014",
+    "models/llm/Qwen2.5-14B-Instruct-AWQ and llm-vllm-venv (frontend planning)",
+    "all user dirty files and experiment_output"
+  ],
+  "root_pip_cache_note": "/root/.cache/pip about5.63GiB is on root overlay, not data disk; cannot include it in data-disk reclaimed budget",
+  "dependency_evidence": [
+    "multishot/product_pipeline.py: WAN_CHECKPOINT_DIR default Wan2.2-TI2V-5B",
+    "multishot/agents.py: MULTISHOT_ASSET_GENERATION_MODEL default sdxl-base-1.0",
+    "docs/product_qwen_pipeline.md: frontend LLM/SDXL/Wan5B defaults",
+    "multishot/ip_adapter_experiment_utils.py:_face_app antelopev2 in third_party/PuLID",
+    "third_party/FaceLift/inference.py: local checkpoints/gslrm and mvdiffusion",
+    "outputs/entitybench_qwen21_i2v_a14b_4step_continuation_20ep/generation_manifest.json: A14B/distill route"
+  ],
+  "behavior": "No delete, move, cache purge, regeneration, environment change or Git mutation performed; writing review only",
+  "candidates": [
+    {
+      "path": "/root/autodl-tmp/movie/models/video/Wan2.2-TI2V-5B",
+      "allocated_bytes": 34203238400,
+      "id": "A1",
+      "description": "旧5B视频模型",
+      "impact": "当前Qwen全量使用A14B，不依赖5B；前端产品默认视频仍指向5B，删除后该默认路线需重新下载或明确迁移。旧5B视频／报告不删。",
+      "recommended": true,
+      "approval": "explicit_user_approval_executed",
+      "n_inventory_files": 53,
+      "deleted": true,
+      "exists_now": false
+    },
+    {
+      "path": "/root/autodl-tmp/movie/models/ip_adapter/h94-IP-Adapter",
+      "allocated_bytes": 4392505344,
+      "id": "A2",
+      "description": "旧IP-Adapter权重",
+      "impact": "当前Qwen路线不加载；旧IP-Adapter实验重新生成需要重新下载，已有媒体／评测证据保留。",
+      "recommended": true,
+      "approval": "pending_user_confirmation",
+      "n_inventory_files": 3,
+      "deleted": false
+    },
+    {
+      "path": "/root/autodl-tmp/qwen-wheel-cache",
+      "allocated_bytes": 844881920,
+      "id": "A3",
+      "description": "Torch／torchvision安装包缓存",
+      "impact": "保留已安装环境，仅删除两个wheel安装包；以后离线重建环境需重新获取。",
+      "recommended": true,
+      "approval": "pending_user_confirmation",
+      "n_inventory_files": 2,
+      "deleted": false
+    },
+    {
+      "path": "/root/autodl-tmp/movie/models/diffusion/sdxl-base-1.0",
+      "allocated_bytes": 6941241344,
+      "id": "B1",
+      "description": "SDXL Base权重",
+      "impact": "当前Qwen benchmark及FaceLift本地checkpoint不依赖该模型；前端资产Agent默认仍用SDXL，删除会影响前端素材生成和旧SDXL实验重跑。",
+      "recommended": false,
+      "approval": "pending_user_confirmation",
+      "n_inventory_files": 24,
+      "deleted": false
+    },
+    {
+      "path": "/root/autodl-tmp/movie/outputs/entitybench_pulid_i2v_a14b_4step_full140/assets",
+      "allocated_bytes": 14136664064,
+      "id": "B2",
+      "description": "已停止FLUX全140的144份旧身份资产",
+      "impact": "当前Qwen全量不能复用这些身份；删除属于放弃FLUX全量续跑，需明确撤销此前保留要求。必须保留旧全量plan／split／status、正式三路线20集、报告和其他历史消融。",
+      "recommended": false,
+      "approval": "pending_user_confirmation",
+      "n_inventory_files": 85983,
+      "deleted": false
+    },
+    {
+      "id": "B3",
+      "paths": [
+        "/root/autodl-tmp/movie/third_party/PuLID/models/flux-dev-fp8.safetensors",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/flux-vae-bf16.safetensors",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/flux_dev_quantization_map.json",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/pulid_flux_v0.9.1.safetensors",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/xflux_text_encoders",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/clip-vit-large-patch14",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/eva_clip",
+        "/root/autodl-tmp/movie/third_party/PuLID/models/ae.safetensors"
+      ],
+      "allocated_bytes": 25316855808,
+      "description": "FLUX／PuLID生成专用权重",
+      "impact": "当前Qwen只复用PuLID源码的渲染／调色助手而不加载这些生成权重；删除后不能直接恢复FLUX生成。绝不可整删models目录，antelopev2仍为Qwen素材筛选／身份gate／标定必需。",
+      "recommended": false,
+      "approval": "pending_user_confirmation",
+      "deleted": false
+    }
+  ],
+  "inventory_path": "/root/autodl-tmp/movie/outputs/disk_cleanup_review_20261014/inventory.json",
+  "inventory_sha256": "4b8bc7d3737d9594d326e31a86e9acd60e0e85bc8057a145969023ce10f64725",
+  "completed_deletions": [
+    {
+      "status": "completed",
+      "completed_beijing": "2026-10-14T22:00:36.037725+08:00",
+      "approved_by_user": "先删除movie/models/video/Wan2.2-TI2V-5B，其他候选未批准",
+      "deleted_id": "A1",
+      "deleted_path": "/root/autodl-tmp/movie/models/video/Wan2.2-TI2V-5B",
+      "removed_inventory_files": 53,
+      "approved_inventory_sha256": "4b8bc7d3737d9594d326e31a86e9acd60e0e85bc8057a145969023ce10f64725",
+      "removed_file_allocated_bytes": 34203238400,
+      "data_disk_before": {
+        "total": 343597383680,
+        "used": 313638391808,
+        "free": 29958991872
+      },
+      "data_disk_after": {
+        "total": 343597383680,
+        "used": 279435132928,
+        "free": 64162250752
+      },
+      "data_free_increase_bytes": 34203258880,
+      "system_disk_before": {
+        "total": 32212254720,
+        "used": 29863690240,
+        "free": 2348564480
+      },
+      "system_disk_after": {
+        "total": 32212254720,
+        "used": 29863690240,
+        "free": 2348564480
+      },
+      "remaining_candidates": "A2,A3,B1,B2,B3 remain pending; no cache purge or other deletions",
+      "frontend_effect": "Default product Wan5B videos unavailable until explicit backend migration or weight re-download; current benchmark A14B unaffected",
+      "proof_path": "/root/autodl-tmp/movie/outputs/disk_cleanup_review_20261014/delete_A1_result.json",
+      "proof_sha256": "3203b016cfa3b1d7f2e1a82ffc8d515fbe5378fb96d9fefa71fa32ee39c7bc82"
+    }
+  ],
+  "data_disk_current": {
+    "total": 343597383680,
+    "used": 279444295680,
+    "free": 64153088000
+  },
+  "remaining_candidate_ids": [
+    "A2",
+    "A3",
+    "B1",
+    "B2",
+    "B3"
+  ],
+  "no_other_deletions": true,
+  "approved_system_cleanup": {
+    "proof_path": "/root/autodl-tmp/movie/outputs/disk_cleanup_review_20261014/delete_pip_cache_and_unpack_result.json",
+    "proof_sha256": "86aa2dcf45fc955035ad6ef9189366fe9a06fa7c60d5462579510a320e4588c7",
+    "completed_beijing": "2026-10-14T22:09:35.094216+08:00",
+    "paths": [
+      "/root/.cache/pip",
+      "/tmp/pip-unpack-62g5uft1",
+      "/tmp/pip-unpack-7n8qqp5r",
+      "/tmp/pip-unpack-_9j3esh7",
+      "/tmp/pip-unpack-cz5udbwq",
+      "/tmp/pip-unpack-gl441rej",
+      "/tmp/pip-unpack-h5dd80uw",
+      "/tmp/pip-unpack-o6h6vn7e",
+      "/tmp/pip-unpack-syruhtco",
+      "/tmp/pip-unpack-t39hbr_8",
+      "/tmp/pip-unpack-uv9vgvsr",
+      "/tmp/pip-unpack-wd1_2jqq"
+    ],
+    "unpack_directories": 11,
+    "actual_reclaimed_bytes": 7638855680,
+    "system_disk_current": {
+      "total": 32212254720,
+      "used": 22225154048,
+      "free": 9987100672
+    },
+    "other_tmp_deleted": false
+  }
+}
