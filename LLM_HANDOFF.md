@@ -1,8 +1,34 @@
 # Qwen人脸注入：当前工作交接
 
-更新：2026-10-14（北京时间）。仓库：`/root/autodl-tmp/movie`。
+更新：2026-10-17（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
 ## 当前目标与状态
+
+2026-10-17 11:05快照：原tmux队列正常，711参考／1163候选、208份有效人脸3D／标定、945新增硬切首帧全部完成。
+08:26进入 `generating_qwen_videos`；新增视频98／2128，失败0，旧363视频仍核验复用，后续继续核验／成片、官方非VLM和脸部审阅／评分。
+视频实时日志为 `logs/generate_formal.log`；协调器日志仍为 `logs/resume_routing_20261016.log`。
+用户已要求提交推送本轮全量适配器、RGBA／分流恢复、测试和交接文档；Git提交／远端以实际检查为准。
+本节以下资源不足、准备未启动及早期完成数为有日期的历史快照；接手先查实时状态，不重复启动。
+
+2026-10-16再次接续：13:44:58队列因Blaze（斑点狗）误入人脸标定、有效样本不足而退出1。
+用户回复“继续吧”后，已按旧全量的9个episode-local非人脸规则修正资格，原图／候选／选图／冻结核心保持；11硬切使用Qwen基础首帧，所有镜头保留。
+接续前有效3D任务208个，111个可复用、97个待补；另4份已生成非人脸3D保留但不注入。
+原tmux `entitybench_qwen21_full140` 已用新入口 `pretest/run_entitybench_qwen21_full140_resume_routing.py` 恢复；优先看 `logs/resume_routing_20261016.log` 及实际进程，不再使用下文旧入口启动。
+磁盘预算按原40GiB总产物减本轮已生成约13.656GiB，再加10GiB余量核验；本次空闲约46GiB通过，原50GiB批准记录保持。
+详见[角色分流与恢复](docs/entitybench_qwen21_full140_routing_recovery_20261016.md)。
+14:59:33已确认run152／Leo和Nathan完成新3D／标定，实时113／208、失败0，原队列正继续后续角色。
+
+2026-10-16：队列06:05因Annelise的FaceLift RGBA回退输入触发VAE通道错误停止；711参考／1163候选全部完成，3D／标定67个完成。
+已独立修复RGBA→白背景RGB格式兼容，原核心及参考保持，失败角色实际3D构建及273点／512标定均通过，完整资产已达68／217。现已在原tmux `entitybench_qwen21_full140` 接续完整队列，最近检查正在来源／权重复核。
+新接续入口 `pretest/run_entitybench_qwen21_full140_resume_rgba.py`，脚本为全量输出 `runtime/resume_rgba_20261016.sh`，新日志 `logs/resume_rgba_20261016.log`。
+详见[RGBA故障与恢复](docs/entitybench_qwen21_full140_rgba_recovery_20261016.md)；后续先查实时状态和进程，不重复启动旧入口。
+
+2026-10-15启动前复核：用户已授权开始；GPU 48GB、20核CPU、96GiB内存恢复，三个Python环境CUDA可用。
+tmux `entitybench_qwen140_preflight` 的只读预检已正常退出0，旧20集／363视频／172实际尾帧依赖及全部Qwen／A14B／LoRA权重SHA重算通过，7项适配器检查通过。
+用户随后明确回复“开始”，已批准显式 `--startup-min-free-gib 50`（40GiB产物＋10GiB守护）。完整队列已在tmux `entitybench_qwen21_full140` 启动；启动时59.746GiB可用。
+使用 `runtime/launch_full140_20261015.sh`，全日志为输出根目录的 `logs/pipeline_20261015.log`。先做来源／模型复核，再做已有22视频的一／两进程验证，之后自动新素材→3D→首帧→视频→核验／成片→官方非VLM→脸部提取／真实审阅→脸部评分／归档。
+来源和批准保存在全量输出 `audit/prelaunch_20261015.json`、`runtime/storage_budget_approval.json`、`runtime/storage_admission.json` 和 `runtime/launch_record_20261015.json`。后续先检查pane_dead、实际进程和阶段JSON，不重复启动；续跑保留50GiB显式参数和所有来源校验。
+GPU映射准入已修复为NVML检测＋真实Python CUDA检查，不再要求设备文件恰好叫 `/dev/nvidia0`；旧冻结清单已归档，核心算法不改。
 
 后续只接续Qwen路线：Qwen人物素材→对应3D／标定→Qwen参考首帧＋单人3D注入→Wan A14B四步蒸馏视频。
 目标完整EntityBench **140集／2,491镜头**，核验复用已完成20集／363镜头，只补120集／2,128镜头。
@@ -12,6 +38,9 @@
 没有活跃tmux生成队列。该状态的资源快照来自清理前，接手须重新检查实际进程、GPU、CPU／内存、磁盘及JSON。
 用户已选择Qwen全量，资源与准入检查通过后在tmux后台接续；已有正常队列时只检查，不重复启动。
 用户确认目前GPU尚未准备好；先整理／核验准备工作，不启动生成或GPU评分，不重复下载模型。
+
+本次准备复核见[Qwen140准备检查](docs/entitybench_qwen21_full140_preparation_check.md)：6项全量及9项官方只读检查通过；
+当前适配器已同步冻结，原20集29,687文件SHA保持。GPU／CPU／内存及数据盘60GiB启动门槛仍未满足，生成未启动。
 
 先读[Qwen140执行交接](docs/LLM_HANDOFF_QWEN140_20261014.md)，需要跨会话时使用[精简提示词](docs/qwen140_new_window_prompt.md)。
 执行或审计官方评测使用[evaluate-face-injection-v2](/root/.codex/skills/evaluate-face-injection-v2/SKILL.md)。
@@ -73,7 +102,7 @@
 只按用户批准删除了旧Wan5B权重、pip缓存及11个pip解包目录；其他模型、素材、3D、报告／消融、其他/tmp和安装环境保留。
 旧Wan5B删除使前端默认视频路线暂不可用；当前A14B实验不受影响。清理详情分别见[数据盘](docs/disk_cleanup_review_20261014.md)和[系统盘](docs/system_disk_usage_20261014.md)。
 保留Qwen／A14B／LoRA、FaceLift、Antelope、facexlib及官方评测依赖。未知资源环境不降低参数强行启动。
-本次提交／推送范围为当前交接、历史归档及存储清理文档；全量适配器由另一会话编写，仍在本机未提交。提交／远端状态以git检查为准。
+本轮提交／推送范围为Qwen全量适配器、RGBA及非人脸分流恢复、相关测试与交接文档；输出媒体、模型及运行时产物不入Git。提交／远端状态以git检查为准。
 保留用户并行改动：`EPISODE_TEST_RESULTS.md`、`docs/frontend_agent_architecture.md`、`pretest/summarize_current_episode_results.py`、`experiment_output/`及新增全量代码。不得reset／clean或全量stage。
 
 ## 历史资料

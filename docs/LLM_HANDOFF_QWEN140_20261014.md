@@ -1,9 +1,34 @@
 # Qwen140执行交接
 
-更新：2026-10-14（北京时间）。当前方向和固定参数以[主交接](../LLM_HANDOFF.md)为准；本文只列执行与核验步骤。
+更新：2026-10-17（北京时间）。当前方向和固定参数以[主交接](../LLM_HANDOFF.md)为准；本文只列执行与核验步骤。
 历史模型组合／进度／清理前容量见[历史索引](history/README.md)，当前任务无需通读。
 
+历史准备核验、准入及逐图裁剪决策要求见[准备检查](entitybench_qwen21_full140_preparation_check.md)。
+该文记录2026-10-14的未启动状态；当前运行阶段以本页最新快照、实时JSON及实际进程为准。
+
 ## 现状与资源
+
+2026-10-17 11:05快照：711参考／1163候选、208份有效3D／标定及945新增硬切首帧全部完成。
+原tmux在08:26进入视频生成，新增98／2128、失败0，旧20集363视频继续核验复用。
+视频实时日志 `logs/generate_formal.log`；协调器日志 `logs/resume_routing_20261016.log`，不要因主日志暂不更新重复启动。
+用户已要求本轮全量代码、恢复适配器、测试及交接提交推送；原核心与生成中任务保持，提交／远端以git检查为准。
+
+2026-10-16再次接续：Blaze（斑点狗）在13:44:58因人脸标定样本不足致队列退出1。
+已按既有9项非人脸角色规则纠正Qwen参考metadata资格，原参考／候选／选择fingerprint／冻结核心保持；所有镜头仍保留。
+有效3D任务208个，接续前111个可复用、97个待补；原tmux已使用 `runtime/resume_routing_20261016.sh` 恢复。
+优先检查 `logs/resume_routing_20261016.log`，入口 `pretest/run_entitybench_qwen21_full140_resume_routing.py`；后续不得重复启动旧RGBA入口。
+续跑磁盘按原40GiB产物总预算扣除本轮已有13.656GiB再留10GiB核验，本次46GiB可用通过；详见[分流恢复](entitybench_qwen21_full140_routing_recovery_20261016.md)。
+14:59:33已确认两份新资产完成且Gaussian／标定SHA绑定通过，实时113／208、失败0，队列继续后续角色。
+
+2026-10-16最新接续：Annelise的RGBA→VAE通道格式故障已独立兼容修复并实际通过3D构建；711参考／1163候选和原67资产保留。
+原tmux `entitybench_qwen21_full140` 使用 `runtime/resume_rgba_20261016.sh` 补原规格标定并恢复完整流水线，入口 `pretest/run_entitybench_qwen21_full140_resume_rgba.py`。
+看 `logs/resume_rgba_20261016.log` 和实际进程；原失败现场已归档，核心／参考／参数不变。详见[故障与恢复](entitybench_qwen21_full140_rgba_recovery_20261016.md)。
+
+2026-10-15更新：用户已授权开始，GPU／CPU／内存已恢复；tmux `entitybench_qwen140_preflight` 只读预检退出0。
+三个真实Python环境CUDA检查、完整旧20集复用及全部模型SHA重算通过；7项适配器检查通过。
+用户已对50GiB预算准入回复“开始”，完整队列已在tmux `entitybench_qwen21_full140` 启动；启动时59.746GiB可用，运行中仍保留10GiB。
+启动脚本为全量输出 `runtime/launch_full140_20261015.sh`，日志 `logs/pipeline_20261015.log`；来源复核及已有视频并发验证后自动接续其余阶段，脸部真实审阅等待规则保留。
+详见全量输出 `audit/prelaunch_20261015.json`。旧GPU不可见快照及下文未启动记录属于历史状态；其他模型／参数／保留边界继续适用。
 
 全量入口已存在：`pretest/run_entitybench_qwen21_full140.py`。
 输出：`outputs/entitybench_qwen21_i2v_a14b_4step_continuation_full140/`。
@@ -70,7 +95,7 @@ API／VLM调用0、39缺失指标null、无fidelity gate；官方原人物区域
 已批准删除的只有旧Wan5B、pip缓存与11个pip解包残留；其他模型、素材、3D、消融、报告、环境与/tmp保留。
 前端默认旧5B视频路线暂不可用；不要为本实验自动改前端配置。Antelope仍为素材／注入／标定依赖。
 用户并行改动及另一个会话新增的全量代码保持，不reset／clean或全量stage。
-本次推送仅包含交接、历史和资源文档；新全量代码／测试仍在本机未提交，保留另一会话工作，提交／推送状态以git检查为准。
+本轮提交范围为Qwen全量代码、RGBA及非人脸分流恢复、测试和交接文档；媒体／模型／运行时输出不入Git，其他并行改动保留，提交／推送状态以git检查为准。
 
 - 固定生成协议来源：[Qwen20运行记录](entitybench_qwen21_20ep_run.md)。
 - 脸部协议：[只裁脸评分说明](entitybench_face_only_dino_20ep_run.md)。
