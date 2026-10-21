@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Summarize the current three-episode Control-vs-v7 evaluation.
+"""Summarize the historical three-episode Control-vs-v7 evaluation.
 
 This script is intentionally evaluation-only: it never runs a generator and
-never changes an experiment result.  It reads the six current route/episode
+never changes an experiment result.  It reads the six historical route/episode
 roots and emits both machine-readable JSON and a detailed Markdown report.
 """
 
@@ -508,9 +508,11 @@ def _core_route_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _render_markdown(summary: dict[str, Any]) -> str:
     lines = [
-        "# EntityBench 当前三 episode 评测结果",
+        "# EntityBench 历史三 episode 评测结果",
         "",
         "> 本文件由 `pretest/summarize_current_episode_results.py` 自动生成。不要手工修改数值。",
+        "",
+        "> 历史结果：本表为旧三 episode/Qwen 实验，不是当前全140集结果。当前实验见[主交接](../../LLM_HANDOFF.md)；旧20集记录见[历史评估说明](../entitybench_20ep_evaluation.md)。",
         "",
         "## 范围",
         "",
@@ -828,7 +830,7 @@ def main() -> None:
     parser.add_argument(
         "--output-md",
         type=Path,
-        default=PROJECT_ROOT / "EPISODE_TEST_RESULTS.md",
+        default=PROJECT_ROOT / "docs/history/EPISODE_TEST_RESULTS_legacy_generated.md",
     )
     args = parser.parse_args()
     summary = build_summary()
