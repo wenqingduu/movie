@@ -1,0 +1,30 @@
+{
+  "scope": "Four selected complete episodes; freeze before generation",
+  "policy": "The same episode medium applies to character references, regenerated keyframes, transition targets, and video prompts. Existing hard-cut media may be reused only after a visual compatibility audit.",
+  "episodes": {
+    "run714__i20_j34": {
+      "medium": "photorealistic live-action film",
+      "character_rendering": "natural faces, consistent ages and clothing; Leo matches his verified earlier appearance",
+      "environment_rendering": "realistic blue room, suburban house, and plain white photography studio; shot-specific light remains allowed",
+      "evidence": "Existing episode frames and corrected Leo anchor are photographic"
+    },
+    "run484__i15_j47": {
+      "medium": "photorealistic live-action film",
+      "character_rendering": "Chloe is an adult woman; Leo is the same young boy in a yellow jacket and red shirt; natural skin and consistent clothing",
+      "environment_rendering": "realistic townhouse, park, street, and cafe; preserve each shot's time of day",
+      "evidence": "Existing story frames are photographic; the old Leo reference collage was mixed style"
+    },
+    "run1404__i170_j220": {
+      "medium": "photorealistic live-action film",
+      "character_rendering": "Kenji, Mei, Ryan, Chloe and background extras are all realistically rendered; no illustrated faces",
+      "environment_rendering": "realistic alley, sedan, restaurant stall and kitchen; preserve blood and lighting required by shot text",
+      "evidence": "Mei and Ryan references and neighboring episode frames are photographic; the old Kenji reference and several baseline shots were mixed style"
+    },
+    "run700__i25_j50": {
+      "medium": "photorealistic live-action film",
+      "character_rendering": "natural realistic faces and stable clothing across the bedroom, house and pub scenes",
+      "environment_rendering": "realistic dim interiors with scene-specific lighting",
+      "evidence": "Baseline first and last frames are consistently photographic; selected as the direct-continuation control"
+    }
+  }
+}
