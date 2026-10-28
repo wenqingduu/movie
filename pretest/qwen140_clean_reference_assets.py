@@ -53,6 +53,26 @@ def main(run_filter: str | None = None) -> None:
         write_once(record, {"inputs": condition, "sha256": sha(dest)})
         print("created", dest)
 
+    if run_filter in (None, "run714"):
+        face_source = OUT / "references/clean/run714/owen.png"
+        dest = OUT / "references/clean/run714/owen_face_only.png"
+        record = dest.with_suffix(".json")
+        box = (130, 35, 390, 245)
+        condition = {"source": str(face_source.resolve()), "source_sha256": sha(face_source),
+                     "crop_box": list(box), "method": "verbatim face-only pixel crop; no generative retouch"}
+        if record.exists():
+            import json
+            old = json.loads(record.read_text())
+            assert old["inputs"] == condition and sha(dest) == old["sha256"]
+        else:
+            assert not dest.exists(), dest
+            with Image.open(face_source) as image:
+                assert image.size == (510, 560), (face_source, image.size)
+                cropped = image.convert("RGB").crop(box)
+            cropped.save(dest)
+            write_once(record, {"inputs": condition, "sha256": sha(dest)})
+        print("verified", dest)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

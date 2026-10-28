@@ -1,12 +1,16 @@
 # Qwen140低质量镜头重跑方案：路由、提示词强化与画风约束
 
-日期：2026-10-26。状态：**五条问题镜头已做隔离试跑，其中四条完成早期局部替换的整集官方非 VLM 复评；新集成路线已完成 run700 整集生成与复评，其余三集仍在推进。** Agent 自主工具调用仍待开发。逐镜试跑见[首轮报告](../outputs/entitybench_qwen140_rerun_pilot_20261026/report.md)，早期局部替换的角色出现率、`cs_face`、画风及多指标取舍见[四集复评报告](../outputs/entitybench_qwen140_rerun_pilot_20261026/official_subset_v1/report.md)。新集成路线的实测见[run700 完整集报告](entitybench_qwen140_integrated_run700_eval_20261026.md)。
+**2026-10-28 执行策略更新：** 新增[精简Agent提示词与单次执行](entitybench_qwen140_route_agent_prompt_v1_20261026.md)。Agent实际调用人物查询工具选取素材，读取数据集人物原句描述并写帧/过渡/行动短提示词；代码将人物描述及图片编号绑定拼入生成输入。新入口 `pretest/qwen140_single_pass_shot.py` 每步只生成一次，计划缺项、素材缺失或生成失败即停，由用户决策，不自动质检重试或改路线。下文前期试跑中出现的自动纠错和回退保留为历史记录，不用于新入口。run700 3:3首次精简计划的`frame_prompt`为空；明确B目标尾帧/C起始首帧及抽象例子后，最新计划字段已完整，但新增了原文未要求的Leo离开动作，再次按用户要求停止，尚无本次新视频。
+
+**最新单镜结果：** 新增角色素材由Agent决定，尾帧中已有的Stefan不额外传参考图，只传Leo素材；完整3:3单次B样例已生成（Wan3过渡3秒＋现有Wan行动段，合片8秒）。[查看原版／新版及两段视频](../outputs/entitybench_qwen140_integrated_episodes_v2_20261026/experiments/run700_3_3_single_pass_max_missing_refs_20261028/index.html)。此为加长探索样例，未做官方指标对照，未替换原整集结果。
+
+日期：2026-10-26；进度更新：2026-10-28。状态：**五条问题镜头已做隔离试跑，其中四条完成早期局部替换的整集官方非 VLM 复评；新集成路线已完成 run700 和 run714 两集生成与复评，run484 与 run1404 尚未完成。** Agent 自主工具调用仍待开发。逐镜试跑见[首轮报告](../outputs/entitybench_qwen140_rerun_pilot_20261026/report.md)，早期局部替换的角色出现率、`cs_face`、画风及多指标取舍见[四集复评报告](../outputs/entitybench_qwen140_rerun_pilot_20261026/official_subset_v1/report.md)。新集成路线的实测见[run700 完整集报告](entitybench_qwen140_integrated_run700_eval_20261026.md)和[run714 完整集报告](entitybench_qwen140_integrated_run714_eval_20261028.md)；[两集原版／新版视频查看页](../outputs/entitybench_qwen140_integrated_episodes_v2_20261026/review/index.html)可逐镜比较。
 
 本轮计划先从现有结果中选择效果不好的shot进行局部重跑，检验三项改动：接续镜头三分支路由、视频提示词补全、episode级画风约束。保留现有完整140集／2491镜头作为冻结基线，新结果写入独立实验目录。
 
 **当前实现边界（2026-10-26）：** 这些改动已在少量试跑镜头上组合使用，尚未形成贯穿全部episode的自动流水线。
 
-**后续进展：** `pretest/qwen140_integrated_episodes.py` 已把视觉路由、角色查表与实际起始图人物绑定、统一画风、关键帧质检、视频生成及依赖哈希串成所选完整episode的确定性执行器；`pretest/qwen140_integrated_episode_eval.py` 可对完成的集执行官方非VLM复评。它仍由脚本编排，路由Agent本身尚不调用生成工具。run700 已完成10/10个shot；B路线3:3实际过渡尾帧失败并回退为C，不能算作B成功。其余三集的集成结果尚未全部完成。下表记录的是前一轮隔离试跑阶段的状态。
+**后续进展：** `pretest/qwen140_integrated_episodes.py` 已把视觉路由、角色查表与实际起始图人物绑定、统一画风、关键帧质检、视频生成及依赖哈希串成所选完整episode的确定性执行器；`pretest/qwen140_integrated_episode_eval.py` 可对完成的集执行官方非VLM复评。它仍由脚本编排，路由Agent本身尚不调用生成工具。run700 和 run714 各完成10/10个shot；run700 的B路线3:3实际过渡尾帧失败并回退为C，不能算作B成功。两集共10个接续shot重跑，10个硬切shot复用原片。其余两集尚未完成。下表记录的是前一轮隔离试跑阶段的状态。
 
 | 改动 | 已实际执行 | 尚未实现 |
 |---|---|---|
@@ -328,3 +332,16 @@ report.md                # 对照结果、负例、不确定项、时间成本�
 续跑缓存键至少包括：原数据与shot键、实际父视频／尾帧SHA、角色素材SHA、画风约定、路由输出、派生prompt、各段参数与模型版本。任一输入变化就使相关节点及其依赖失效，不能仅凭输出文件存在认定可复用。
 
 本文记录后续实验做法，并追加已执行的小样本结果。现有full140正式分数保持原样；四集定向样本的改善与回退均不能外推为全140集收益。Agent自主工具闭环和受影响依赖链的更大范围重跑仍待完成。
+
+### 2026-10-28：run700素材与整集重跑
+
+原Leo、Walter人物素材存在拼图/多人污染，旧试验又复用了4:1的分屏硬切视频。本轮去掉人物素材提示词中的整集故事上下文，6名角色按原句描述统一生成写实单人素材；单次生成和逐张查看已完成。整集入口`pretest/qwen140_episode_single_pass.py`接入A/B/C及所有硬切新首帧，不经过旧自动质检重试/回退；生成问题停下交用户决定。本轮已完成10/10镜头和官方非VLM复评；整体指标未改善，具体输入、视频、分数和缺陷见[本轮记录](entitybench_run700_clean_reference_rerun_20261028.md)。
+
+### 核心方法保持：3D注入不可被新增路由替代
+
+用户明确要求保留原full140的单人硬切首帧v7注入，把A/B/C、人物提示词和统一画风作为新增内容。上一轮native-only结果仅为试跑，不能作为保留原方法的改进版。已恢复Stefan原2D/3D配对资产与原v7参数并开始run700整集重跑，详见[恢复记录](entitybench_run700_v7_restored_20261028.md)。
+
+
+## 当前执行入口（2026-10-28）
+
+以[主交接](../LLM_HANDOFF.md)为准：当前多人3D方案在全部检测脸中匹配，保留原v7参数。用户已授权本批无人通过门控时沿用同次Control继续，无需确认；技术异常记录并继续其他episode。正在独立后台运行4集/48shot，目录 `outputs/entitybench_qwen140_multiface_weak4_20261028`，tmux `qwen140_multiface_weak4`；以 `status.json`、`eta.json` 和实际进程为准。结束后给出每集及同一配对完成子集的12项官方非VLM前后指标，完整人工视频审阅另记。

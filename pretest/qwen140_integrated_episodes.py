@@ -31,6 +31,8 @@ TRACKED_STYLE_FILE = ROOT / "docs/entitybench_qwen140_integrated_style_specs_202
 QWEN_PYTHON = "/root/autodl-tmp/qwen-image21-venv/bin/python"
 WAN_PYTHON = "/root/autodl-tmp/envs/lightx2v-trial/bin/python"
 TAGS = {"run714": "i20_j34", "run484": "i15_j47", "run1404": "i170_j220", "run700": "i25_j50"}
+if os.environ.get("QWEN140_COHORT_CONFIG"):
+    TAGS = json.loads(Path(os.environ["QWEN140_COHORT_CONFIG"]).read_text())["run_tags"]
 REBUILD_HARDCUT = {"run1404": {"1:1", "3:1", "5:1"}}
 PILOT_REUSE = {("run1404", "6:1"): PILOT / "videos/run1404/main/video.mp4"}
 ROUTE_MODEL_VERSION = "route_v1_dynamic_tail"
@@ -122,6 +124,10 @@ def role_ref(run: str, ep: dict, name: str, prep: dict, old_prep: dict) -> Path 
 
 def audited_single_person_ref(run: str, ep: dict, shot: dict, stage: str,
                               attempt: int, name: str, default: Path | None) -> Path | None:
+    if (run, shot["shot_key"], stage, name) == ("run714", "4:2", "clean_start", "Owen") and attempt >= 4:
+        clean = OUT / "references/clean/run714/owen_face_only.png"
+        assert clean.is_file(), clean
+        return clean
     clean_crop = {
         ("run700", "Arthur"): "arthur_v2.png",
         ("run700", "Walter"): "walter_v2.png",
@@ -160,14 +166,28 @@ def api_json(system: str, text: str, images: list[tuple[str, Path]], cache: Path
         {"role": "system", "content": system}, {"role": "user", "content": content}],
         "temperature": 0, "enable_thinking": False, "max_tokens": max_tokens,
         "response_format": {"type": "json_object"}}
-    req = urllib.request.Request(cfg["DASHSCOPE_BASE_URL"].rstrip("/") + "/chat/completions",
-                                 data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + cfg["DASHSCOPE_API_KEY"]})
-    with urllib.request.urlopen(req, timeout=180) as response:
-        result = json.load(response)
-    answer = json.loads(result["choices"][0]["message"]["content"])
+    answer = None
+    result = None
+    used_max_tokens = max_tokens
+    for retry in range(3):
+        used_max_tokens = max_tokens * (2 ** retry)
+        payload["max_tokens"] = used_max_tokens
+        req = urllib.request.Request(cfg["DASHSCOPE_BASE_URL"].rstrip("/") + "/chat/completions",
+                                     data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + cfg["DASHSCOPE_API_KEY"]})
+        with urllib.request.urlopen(req, timeout=180) as response:
+            result = json.load(response)
+        try:
+            answer = json.loads(result["choices"][0]["message"]["content"])
+            break
+        except json.JSONDecodeError:
+            if retry == 2:
+                raise RuntimeError(f"Vision API returned invalid JSON after {retry + 1} attempts; "
+                                   f"finish_reason={result['choices'][0].get('finish_reason')}")
+    assert answer is not None and result is not None
     write_once(cache, {"fingerprint": fp, "condition": condition, "answer": answer,
-                       "returned_model": result.get("model"), "usage": result.get("usage")})
+                       "returned_model": result.get("model"), "usage": result.get("usage"),
+                       "effective_max_tokens": used_max_tokens})
     return answer
 
 
@@ -310,7 +330,8 @@ def accepted_clean_frame(run: str, ep: dict, shot: dict, intended: str, issues: 
         existing = [i for i in range(4) if (shot_dir / f"{stage}_attempt{i}.task.json").exists()]
         write_once(visual_policy, {"apply_from_attempt": max(existing) + 1 if existing else 0})
     visual_from = json.loads(visual_policy.read_text())["apply_from_attempt"]
-    for attempt in range(4):
+    tailored_retry = run == "run714" and shot["shot_key"] == "4:2" and stage == "clean_start"
+    for attempt in range(6 if tailored_retry else 4):
         dest = shot_dir / f"{stage}_attempt{attempt}.png"
         skip_refs: set[str] = set()
         frame_state = state
@@ -321,6 +342,12 @@ def accepted_clean_frame(run: str, ep: dict, shot: dict, intended: str, issues: 
             if skip_refs and attempt >= visual_from:
                 frame_state = visible_only_state(ep, shot, state, visible,
                                                  shot_dir / f"{stage}_visual_state{attempt}.json")
+        if tailored_retry and attempt >= 4:
+            frame_state = ("Exactly two people in The Blue Room: Nadia, a woman in the black tuxedo and "
+                           "untied bow tie from the previous shot, stands to the left and starts turning "
+                           "away; Owen, a broad-shouldered man with short dark hair wearing only a plaid "
+                           "button-down shirt and jeans, stands to the right and watches her with concern. "
+                           "Owen's reference image supplies facial identity only, not clothing.")
         frame = frame_spec(run, ep, shot, stage, frame_state, None, desc, prep, old_prep,
                            dest, skip_refs=skip_refs, strict_pre_action=True)
         verdict = audit_frame(run, ep, shot, stage, state, frame,
@@ -329,7 +356,7 @@ def accepted_clean_frame(run: str, ep: dict, shot: dict, intended: str, issues: 
             return frame
         print("rejected clean keyframe", run, shot["shot_key"], attempt,
               verdict["issues"], flush=True)
-        if attempt < 3:
+        if attempt < (5 if tailored_retry else 3):
             state = positive_state(run, ep, shot, state, verdict["issues"],
                                    shot_dir / f"fallback_clean_state{attempt+1}.json")
     raise RuntimeError(f"No acceptable clean fallback frame for {run} {shot['shot_key']}")
@@ -367,6 +394,9 @@ def frame_spec(run: str, ep: dict, shot: dict, stage: str, state: str, tail: Pat
     label_text = " ".join(f"Image {i} is {label}." for i, (label, _) in enumerate(paths, 1))
     role_text = "; ".join(f"{n}: {desc[n]}" for n in names
                           if not strict_pre_action or n not in (skip_refs or set()))
+    if run == "run714" and shot["shot_key"] == "4:2" and stage == "clean_start" and attempt >= 4:
+        role_text = ("Nadia: woman with hair pulled back wearing a black tuxedo and untied bow tie; "
+                     "Owen: broad-shouldered man with short dark hair wearing a plaid button-down shirt and jeans")
     sty = style_for(run)
     frame_prompt = (f"{label_text} Create ONE new {sty['medium']} frame for shot {shot['shot_key']}. "
                     f"Characters: {role_text}. Desired frame state: {state}. "
@@ -705,9 +735,7 @@ def worker_refs(task_path: Path) -> None:
     for item in task["items"]:
         dest = Path(item["path"])
         rec = dest.with_suffix(".json")
-        prompt_text = (f"{item['style']['medium']}. One person only, one continuous waist-up portrait "
-                       f"against a neutral background. Character {item['name']}: {item['description']}. "
-                       f"{item['style']['character_rendering']}. No collage, inset, text or illustration.")
+        prompt_text = clean_reference_prompt(item)
         condition = {"task": task["episode_id"], "name": item["name"], "description": item["description"],
                      "prompt": prompt_text, "seed": item["seed"], "steps": 40, "style_sha256": task["style_sha256"]}
         if rec.exists():
@@ -724,10 +752,24 @@ def worker_refs(task_path: Path) -> None:
         print("reference", item["name"], dest, flush=True)
 
 
+def clean_reference_prompt(item: dict) -> str:
+    # A reference is a portrait, not a storyboard: never append the story summary.
+    return (f"{item['style']['medium']}. One single person in one continuous head-and-shoulders "
+            f"portrait, centered against a plain neutral grey studio background. "
+            f"Character {item['name']}: {item['description'].rstrip('.')}. "
+            "Face fully visible, natural skin and realistic clothing. "
+            "Exactly one person and one view. No split screen, stacked panels, collage, inset, "
+            "storyboard, background people, text or illustration.")
+
+
 def worker_frame(task_path: Path, output: Path) -> None:
+    task = json.loads(task_path.read_text())
+    if task.get("face_injection"):
+        from qwen140_v7_frame import generate
+        generate(task, output)
+        return
     import torch
     from qwen140_pilot_qwen import make_pipe
-    task = json.loads(task_path.read_text())
     assert not output.exists()
     pipe = make_pipe("frames")
     images = [Image.open(x["path"]).convert("RGB") for x in task["images"]]
@@ -739,7 +781,8 @@ def worker_frame(task_path: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     result.convert("RGB").save(output)
     write_once(output.with_suffix(".json"), {"condition_sha256": digest(task), "inputs": task,
-                    "sha256": sha(output), "elapsed_seconds": time.monotonic() - start})
+                    "sha256": sha(output), "elapsed_seconds": time.monotonic() - start,
+                    "injection_applied": False, "skip_reason": task.get("injection_skip_reason", "native_reference_stage")})
     print("keyframe", output, flush=True)
 
 
