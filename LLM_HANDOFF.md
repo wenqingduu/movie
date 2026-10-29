@@ -1,13 +1,13 @@
 # 主交接：原始完整benchmark与当前多人3D集成
 
-更新：2026-10-28（北京时间）。仓库：`/root/autodl-tmp/movie`。
+更新：2026-10-29（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
 本主交接只保留两条主线：已完成的原始完整benchmark，以及当前用于后续重跑的多人3D集成方案。历史探索过程不纳入本文；原始媒体、指标、素材、Gaussian和历史记录均保留。
 
 ## 当前状态
 
 - 原始完整benchmark：140集／2491镜头，生成与官方非VLM评测完成；不可覆盖或重新解释为新方案结果。
-- 当前多人3D方案：run700完整10镜头和12项非VLM评测已完成；新一批4集／48镜头在独立tmux后台执行。
+- 当前多人3D方案：run700完整10镜头和12项非VLM评测已完成；首批4集已生成22/48镜头，兼容修复后在tmux等待GPU恢复，再继续生成与评测。
 - 用户最新授权：整张没有角色通过3D门控属于正常跳过，使用同次Control继续，不需确认；技术异常记录并继续处理其他episode，尽量完成整批。不得放宽阈值、隐瞒缺失或自动更换模型。
 - VLM评测继续关闭：strict、skip_vlm，调用0。Agent规划与B路线视频生成API已获授权，不属于VLM评分。
 
@@ -121,7 +121,7 @@ Agent使用配置中的`SHOT_AGENT_MODEL`（当前qwen3.8-max），读取上一�
 - 实时总进度：`status.json`；各集：`experiments/<run__tag>/progress.json`；日志：`queue.log`和各集`logs/`。
 - 技术异常：`technical_exceptions.json`及各集`technical_exception.json`；素材异常：各集`asset_failures.json`。门控跳过详见每shot的`frame/injection/result.json`与`preparation_attempt.json`，不混入技术异常计数。
 - 视频/指标入口：根目录`index.html`；各集完成后`review/index.html`含原始/新整集及逐shot链接，`report.md`含前后12项指标。未完成链接按阶段生成。
-- 首次估计完成：北京时间2026-10-29约05:30，范围04:30–06:30；依据run700实测速度估计5–7小时。以`eta.json`和实际进度为准，API延迟/技术异常可能改变；缺项必须披露。
+- 2026-10-29续跑：首轮四集因数据兼容异常结束，已完成22/48shot且全部SHA验证保留；缺失场景/道具描述、旧窗口种子及可见人物参考编号已修复。当前环境CUDA不可用，后台等待GPU恢复后自动继续；原结束时间估计作废，恢复GPU后预计还需3–5小时。详见[续跑记录](docs/entitybench_weak4_resume_20261029.md)，实时以`status.json`、`eta.json`为准。
 
 ## 接手与结果解释
 

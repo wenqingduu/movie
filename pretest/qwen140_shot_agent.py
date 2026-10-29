@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -122,6 +123,19 @@ def plan_shot(context: dict, tail: Path | None, catalog: dict, folder: Path) -> 
     return saved
 
 
+def frame_inputs(plan: dict) -> tuple[list[dict], str]:
+    """Keep only visible-role references and align their image numbers."""
+    visible = set(plan["decision"].get("frame_characters", plan["character_descriptions"]))
+    selected = [dict(a) for a in plan["assets"] if a["name"] in visible]
+    indices = {}
+    for index, asset in enumerate(selected, 2 if plan.get("has_tail", True) else 1):
+        indices[asset["image_index"]] = index
+        asset["image_index"] = index
+    prompt = plan["decision"].get("frame_prompt", "")
+    prompt = re.sub(r"图(\d+)", lambda match: "图" + str(indices.get(int(match.group(1)), int(match.group(1)))), prompt)
+    return selected, prompt
+
+
 def compile_prompts(plan: dict, style: str) -> dict:
     decision, assets = plan["decision"], plan["assets"]
     validate_plan(decision)
@@ -129,14 +143,15 @@ def compile_prompts(plan: dict, style: str) -> dict:
     people = " ".join(f"{name}: {description}" for name, description in descriptions.items())
     frame_names = decision.get("frame_characters", list(descriptions))
     frame_people = " ".join(f"{name}: {descriptions[name]}" for name in frame_names)
-    labels = " ".join(f"图{a['image_index']}是{a['name']}，只作人物参考。" for a in assets)
+    frame_assets, frame_prompt = frame_inputs(plan)
+    labels = " ".join(f"图{a['image_index']}是{a['name']}，只作人物参考。" for a in frame_assets)
     identity = decision["tail_identity"]
     frame_context = ("按当前shot建立全新的场景、机位与动作起始画面。" if not plan.get("has_tail", True) else
                      f"图1是上一实际尾帧，延续原场景与已有角色。{identity}"
                      if decision["route"] == "B"
                      else "图1提供上一画面的环境与画风线索，按当前shot建立场景、机位与所需角色。")
     return {
-        "frame": (f"{style} {frame_context} {labels} {frame_people} {decision['frame_prompt']} "
+        "frame": (f"{style} {frame_context} {labels} {frame_people} {frame_prompt} "
                   "单幅连续电影画面，每人仅出现一次；无分屏、上下拼接、多格画面、插图或字幕。"
                   if decision["route"] in {"B", "C"} else ""),
         "transition": (f"{style} {people} {identity} {decision['transition_prompt']}"

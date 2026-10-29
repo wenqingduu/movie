@@ -5,9 +5,9 @@
 
 主交接只保留：
 1. 原始完整140集/2491镜头benchmark设计和正式结果（只读保留）。
-2. 当前多人3D集成：Agent A/B/C路由、角色描述提示词强化、统一episode画风、Qwen逐角色v7、Wan四步；run700已完整验证，首批低指标4集/48shot在后台执行。
+2. 当前多人3D集成：Agent A/B/C路由、角色描述提示词强化、统一episode画风、Qwen逐角色v7、Wan四步；run700已完整验证，首批低指标4集已生成22/48shot，修复兼容问题后在后台等待GPU恢复。
 
-运行目录 outputs/entitybench_qwen140_multiface_weak4_20261028/；tmux qwen140_multiface_weak4；入口 pretest/qwen140_multiface_weak_episode_batch.py。先读 cohort.json、status.json、各集progress.json/日志以及异常记录。视频和指标会进入根index.html与各集review/index.html、report.md。
+运行目录 outputs/entitybench_qwen140_multiface_weak4_20261028/；tmux qwen140_multiface_weak4；入口 pretest/qwen140_multiface_weak_episode_batch.py。先读 cohort.json、status.json、各集progress.json/日志以及异常记录。当前CUDA不可用，队列会等待GPU自动恢复；不把等待当作已生成或失败。兼容修复与原22shot保持记录见 docs/entitybench_weak4_resume_20261029.md。视频和指标会进入根index.html与各集review/index.html、report.md。
 
 用户最新授权：整张无角色通过3D门控属于正常跳过，沿用同次Control继续，不必确认；真正技术异常记录并继续其他episode，尽量把整批跑完。不得放宽阈值、改模型、隐藏未完成项或把未注入记为实际注入。新授权覆盖之前“遇事先停问用户”的旧要求。
 

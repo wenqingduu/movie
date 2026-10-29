@@ -14,7 +14,7 @@ os.environ.setdefault("QWEN140_INTEGRATED_OUTPUT_ROOT", str(
     ROOT / "outputs/entitybench_qwen140_run700_v7_restored_20261028"))
 
 import qwen140_integrated_episodes as core
-from qwen140_shot_agent import compile_prompts, plan_shot
+from qwen140_shot_agent import compile_prompts, frame_inputs, plan_shot
 from qwen140_single_pass_shot import decode
 from qwen140_wan_api import generate_video
 
@@ -96,7 +96,7 @@ def stage(action: str, run: str, key: str | None):
         context = {"episode_id": ep["episode_id"], "shot_key": key, "original_cut": shot["cut"],
                    "previous_shot": ep["shots"][index-1]["action_description"] if index else "",
                    "current_shot": shot["action_description"], "entity_schedule": shot["entity_schedule"],
-                   "setting_and_object_descriptions": {n: desc[n] for group in ("places", "objects")
+                   "setting_and_object_descriptions": {n: desc.get(n, n) for group in ("places", "objects")
                                                         for n in shot["entity_schedule"].get(group, [])},
                    "episode_style": style,
                    "instruction": "按原文安排动作与道具，不增加其他人物行动。关键帧只画此刻可见角色；frame_characters必须返回。所有图像都是单幅连续电影画面。"}
@@ -106,9 +106,13 @@ def stage(action: str, run: str, key: str | None):
         frame_names = decision["frame_characters"]
         assert isinstance(frame_names, list) and set(frame_names) <= set(catalog)
         assert len(frame_names) == len(set(frame_names))
-        assert all(a["name"] in frame_names for a in plan["assets"]), "Reference selected for a hidden character"
         if decision["route"] == "C" and tail is None:
-            assert set(frame_names) == {a["name"] for a in plan["assets"]}, "New hardcut lacks a visible role reference"
+            assert set(frame_names) <= {a["name"] for a in plan["assets"]}, "New hardcut lacks a visible role reference"
+        missing = [n for group in ("places", "objects") for n in shot["entity_schedule"].get(group, []) if n not in desc]
+        if missing:
+            core.write_once(folder / "missing_setting_descriptions.json", {"names": missing, "source": "Exact scheduled label used when dataset provides no description; no invented description"})
+        selected, _ = frame_inputs(plan)
+        core.write_once(folder / "frame_asset_projection.json", {"original_assets": plan["assets"], "visible_assets": selected, "frame_characters": frame_names})
         core.write_once(folder / "compiled_prompts.json", compile_prompts(plan, style))
         print(json.dumps(plan, ensure_ascii=False, indent=2), flush=True)
         return
@@ -119,8 +123,9 @@ def stage(action: str, run: str, key: str | None):
     if action == "frame":
         assert route in {"B", "C"}, "Route A uses actual parent tail without frame generation"
         images = [{"label": "图1：上一实际尾帧", "path": str(tail), "sha256": core.sha(tail)}] if tail else []
+        selected, _ = frame_inputs(plan)
         images += [{"label": f"图{a['image_index']}：{a['name']}", "path": a["reference"], "sha256": a["sha256"]}
-                   for a in plan["assets"]]
+                   for a in selected]
         dest = folder / "frame/target.png"
         task = {"episode_id": ep["episode_id"], "shot_key": key,
                 "stage": "transition_target" if route == "B" else "new_shot_start",
@@ -261,7 +266,7 @@ def run_remaining(run: str):
             assert core.sha(Path(row["video"])) == row["video_sha256"]
             assert core.sha(Path(row["last_frame"])) == row["last_sha256"]
             continue
-        if not (folder / "agent/plan.json").exists():
+        if not (folder / "agent/plan.json").exists() or not (folder / "compiled_prompts.json").exists():
             progress(key, "plan")
             stage("plan", run, key)
         route = json.loads((folder / "agent/plan.json").read_text())["decision"]["route"]

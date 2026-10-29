@@ -119,13 +119,19 @@ def assets(item, plan):
     (directory / "runtime").mkdir(parents=True, exist_ok=True)
     env = asset_environment(directory, environment(directory))
     policy_path = directory / "face_injection_policy.json"
+    active_policy = directory / "active_face_injection_policy.json"
+    if active_policy.exists():
+        pointer = read(active_policy)
+        policy_path = Path(pointer["path"])
+        assert sha(policy_path) == pointer["sha256"]
     if policy_path.exists():
         for f in read(policy_path)["frozen_files"]:
             assert sha(f["path"]) == f["sha256"], f["path"]
         return env
     names = sorted({n for s in ep["shots"] for n in s["entity_schedule"].get("characters", [])})
     descriptions = {v["name"]: v["description"] for v in ep["entity_descriptions"].values()}
-    ref_items = [{"name": n, "description": descriptions[n], "path": str(directory / "references" / ep["run"] / f"{n.lower()}.png"), "seed": ep["base_seed"] + 22_000_000 + i, "style": {"medium": plan["style"]}} for i, n in enumerate(names)]
+    reference_seed = ep["base_seed"] if "base_seed" in ep else ep["shots"][0]["seed"]
+    ref_items = [{"name": n, "description": descriptions[n], "path": str(directory / "references" / ep["run"] / f"{n.lower()}.png"), "seed": reference_seed + 22_000_000 + i, "style": {"medium": plan["style"]}} for i, n in enumerate(names)]
     task = directory / "references.task.json"
     write(task, {"episode_id": ep["episode_id"], "items": ref_items, "style_sha256": sha(directory / "style_specs.json")}, frozen=True)
     command(item, "references", [QWEN, "-u", "pretest/qwen140_integrated_episodes.py", "worker-refs", "--task", str(task)], env)
@@ -234,6 +240,16 @@ def run(plan):
     assert sha(BASE / "manifest.json") == plan["baseline_manifest_sha256"]
     assert sha(TEMPLATE) == plan["v7_template_sha256"]
     index(plan)
+    while True:
+        probe = subprocess.run([QWEN, "-c", "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"],
+                               env={**os.environ, "OMP_NUM_THREADS": "4", "OPENBLAS_NUM_THREADS": "4"},
+                               capture_output=True, text=True, timeout=60)
+        if probe.returncode == 0:
+            break
+        completed_prefix = sum(len(list((Path(i["output_root"]) / "episodes").glob("*/shot_*/result.json"))) for i in plan["episodes"])
+        status("waiting_for_gpu", completed_prefix_shots=completed_prefix, expected_shots=plan["num_shots"],
+               reason="CUDA unavailable; preserve valid work and resume automatically when GPU returns")
+        time.sleep(30)
     errors = []
     for item in plan["episodes"]:
         d = Path(item["output_root"])
