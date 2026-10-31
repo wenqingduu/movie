@@ -16,7 +16,7 @@ SYSTEM = PROMPT_DOC.read_text().split("```text\n", 1)[1].split("\n```", 1)[0].st
 
 
 LOOKUP_TOOL = {"type": "function", "function": {
-    "name": "lookup_characters", "description": "查询待绘关键帧中可见、且尾帧未出现或无法确认的角色素材。硬切无尾帧时查询可见角色。返回描述、参考图及编号；无需素材时names为空。",
+    "name": "lookup_characters", "description": "查询待绘关键帧中可见、且尾帧未出现或无法确认的角色素材。硬切无尾帧时默认查询全部调度角色，仅排除原文明示稍后入场、画外或仅声音者。返回描述、参考图及编号；无需素材时names为空。",
     "parameters": {"type": "object", "properties": {
         "names": {"type": "array", "items": {"type": "string"}}},
         "required": ["names"], "additionalProperties": False}}}
@@ -91,7 +91,7 @@ def plan_shot(context: dict, tail: Path | None, catalog: dict, folder: Path) -> 
         return saved
     content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)
                 + ("\n图1是上一实际尾帧。" if tail else
-                   "\n本镜头为硬切，无上一尾帧图。必须选C；人物参考从图1编号，建立全新的动作起始画面。") }]
+                   "\n本镜头为硬切，无上一尾帧图。必须选C；首帧默认包含全部调度角色并查询其素材，仅原文明示稍后入场、画外或仅声音者可排除。人物参考从图1编号，建立动作起点。") }]
     if tail:
         content.append({"type": "image_url", "image_url": {"url": image_data_url(tail)}})
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]
@@ -121,6 +121,22 @@ def plan_shot(context: dict, tail: Path | None, catalog: dict, folder: Path) -> 
     write_once(plan_file, saved)
     validate_plan(decision)
     return saved
+
+
+
+def include_inherited_descriptions(plan: dict, inherited: dict[str, str]) -> dict:
+    """Retain tail roles without querying or adding their reference images."""
+    descriptions = plan["character_descriptions"]
+    visible = plan["decision"]["frame_characters"]
+    if not isinstance(visible, list) or any(not isinstance(n, str) for n in visible):
+        raise ValueError("frame_characters must be a list of role names")
+    missing = set(visible) - set(descriptions)
+    allowed = inherited if plan.get("has_tail", False) else {}
+    unknown = missing - set(allowed)
+    if unknown:
+        raise ValueError(f"Frame contains roles outside current and inherited cast: {sorted(unknown)}")
+    return {**plan, "character_descriptions": {
+        **descriptions, **{name: allowed[name] for name in visible if name in missing}}}
 
 
 def frame_inputs(plan: dict) -> tuple[list[dict], str]:

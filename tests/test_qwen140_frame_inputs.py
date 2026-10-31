@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pretest"))
-from qwen140_shot_agent import compile_prompts, frame_inputs
+from qwen140_shot_agent import compile_prompts, frame_inputs, include_inherited_descriptions
 
 
 class FrameInputsTest(unittest.TestCase):
@@ -38,6 +38,35 @@ class FrameInputsTest(unittest.TestCase):
         self.assertNotIn("Chloe", prompts["frame"])
         self.assertIn("Chloe", prompts["shot"])
         self.assertIn("图2是Ryan", prompts["frame"])
+
+
+class InheritedCastTest(unittest.TestCase):
+    def plan(self, tail=True):
+        return {"has_tail": tail,
+                "decision": {"route": "B" if tail else "C", "tail_identity": "Nora on couch",
+                             "frame_characters": ["Nora", "Chloe", "Leo"],
+                             "frame_prompt": "Nora seated; Chloe and Leo beside couch",
+                             "transition_prompt": "Chloe and Leo enter", "shot_prompt": "They approach Nora"},
+                "assets": [{"name": "Chloe", "image_index": 2}, {"name": "Leo", "image_index": 3}],
+                "character_descriptions": {"Chloe": "white blazer", "Leo": "yellow jacket"}}
+
+    def test_existing_tail_role_gets_description_without_extra_reference(self):
+        original = self.plan()
+        saved = copy.deepcopy(original)
+        plan = include_inherited_descriptions(original, {"Nora": "green blouse"})
+        prompts = compile_prompts(plan, "film")
+        self.assertIn("Nora: green blouse", prompts["frame"])
+        self.assertIn("Nora: green blouse", prompts["shot"])
+        self.assertEqual([a["name"] for a in frame_inputs(plan)[0]], ["Chloe", "Leo"])
+        self.assertEqual(original, saved)
+
+    def test_unknown_role_remains_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Nora"):
+            include_inherited_descriptions(self.plan(), {"Marco": "grey suit"})
+
+    def test_hardcut_cannot_borrow_prior_role(self):
+        with self.assertRaisesRegex(ValueError, "Nora"):
+            include_inherited_descriptions(self.plan(tail=False), {"Nora": "green blouse"})
 
 
 if __name__ == "__main__":

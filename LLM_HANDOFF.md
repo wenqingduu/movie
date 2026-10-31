@@ -1,15 +1,34 @@
 # 主交接：原始完整benchmark与当前多人3D集成
 
-更新：2026-10-29（北京时间）。仓库：`/root/autodl-tmp/movie`。
+更新：2026-10-31 23:07（北京时间）。仓库：`/root/autodl-tmp/movie`。
 
 本主交接只保留两条主线：已完成的原始完整benchmark，以及当前用于后续重跑的多人3D集成方案。历史探索过程不纳入本文；原始媒体、指标、素材、Gaussian和历史记录均保留。
 
 ## 当前状态
 
+- **最高优先：10月31日23:07交接，未跑完，后台正常运行。** 本批126集2316shot中，15集158shot已生成并完成官方非VLM；共生成175shot，含run155的10shot未完成前缀及当前run654/i20_j41的7/10shot。加此前14集175shot，累计29集333shot完整重跑并评分。tmux `qwen140_remaining126`，入口`pretest/qwen140_multiface_remaining_episode_batch.py`，输出`outputs/entitybench_qwen140_multiface_remaining126_20261030/`。先读[本次完整交接](docs/entitybench_session_handoff_20261031.md)，实时核对后继续，勿重复启动。
+- 磁盘：10月31日约15:09空间不足等待，20:05扩容320→350GiB后恢复；旧进程退出原因未证实。当前约36.80GiB空余，每集前保留8GiB并估算所需空间，不自动删除；全队列可能仍需扩容。守护修复Agent保持关闭，普通队列及镜头路由Agent继续。
+- **未解决：** run155/i5_j39在8:1查询`the yellow electric pokémon`不在人物catalog而KeyError，前10shot保留；全140滚动快照helper约195行软链接断言失败，`full140_snapshot/`可能部分写入，不能当最新一致结果；本批15集配对汇总有效。run617/i75_j127的Jordan FaceLift因4通道输入失败，保留2D、该角色未构建可用3D，其他角色及整集继续。详见本次交接，不把资产技术失败说成正常门控。
+- 本批15集相同子集：角色出现0.9649→0.9919、人物区域cs_face 0.7618→0.7807、成像65.5121→67.1443、美学0.5968→0.6036、场景0.5914→0.6135；动态0.5165→0.4852、cs_object 0.8606→0.8283、边界0.9868→0.7564下降。完整人工审阅待完成，非全140或插件单独消融。19个冻结源码SHA已核验；修复源文件须明确版本，不能原地改后无记录续跑。
+- **最新全量汇总：已按14集175shot重跑＋126集2316shot原版，重新聚合完整140集2491shot。** 独立输出`outputs/entitybench_qwen140_partial_rerun_full140_20261030/`；12项前后表、140行逐集CSV和14集视频入口齐全。全量角色出现率0.9212→0.9364、人物区域cs_face 0.7155→0.7172、成像59.6517→59.9107；动态0.4853→0.4828、场景0.6303→0.6259、边界0.9822→0.9469。详见[全量重新聚合说明](docs/entitybench_qwen140_partial_rerun_full140_20261030.md)。这是部分重跑后的混合全量快照，**不是140集统一新方法重跑**；原始完整benchmark数值和报告仍保持原样。
+- 全量核验：原all/easy/medium/hard官方报告精确复现，140集唯一覆盖、2491规范视频映射，评分代码/配置/模型/库一致，17份评分manifest VLM调用0；复用核验通过的逐集评分，本次无神经推理。126集未替换指标差值均0。边界有效137集，缺失不填0。
+- **此前已结束批次（非当前GPU状态）：10月30日21:58（北京时间），9集117shot全部生成与12项非VLM评分完成，旧队列退出。** 第二批focus4（run317、run15、run354、run348）4集55shot；extra5（run974、run227、run470、run1537、run893）5集62shot。充值后续跑86shot，保留31shot。状态根`outputs/entitybench_resume_supervisor_20261030/`，详见[完成说明](docs/entitybench_recharge_resume_20261030.md)。
+- 九集同一配对子集由冻结官方实现重新解序列化并集等权聚合，输出`outputs/entitybench_resume_supervisor_20261030/final9/`：人物出现率0.8254→0.9899、人物区域cs_face 0.6704→0.7068、成像60.6169→65.0132、美学0.5778→0.5892；动态0.5054→0.4704、场景0.6454→0.5955、边界0.9833→0.6510下降。不是全140或插件单独消融，完整人工视频审阅待完成。
+- 完成核验：9集各12项有有效值且n_failed=0、VLM总调用0；117个视频/尾帧SHA及接续父链、官方路径均通过，93项既有结果/视频/尾帧哈希未变。A/B/C为3/16/98，114张新关键帧中112张实际注入、2张正常Control沿用、204角色次实际注入；两次门控正常跳过不算技术失败。
+- **用户明确关闭守护修复Agent，保持关闭。** 本轮只用普通队列调度，max_repair_rounds=0、工具轮数0、修复白名单为空；修复调用0、技术异常0。镜头路由Agent与修复Agent分开，前者仍为实验组成部分。
+- 夜间曾因月度API额度耗尽于03:30停止，同接口修复调用两次也失败；充值后14:08续跑，全部完成。历史状态/额度异常保留在原目录及before_resume/，不能把最终0异常解释为从未中断。
+- Clara原配置4:1、5:1于02:23完成，Control/Treatment最终图均与原图逐像素一致，各82张主轨迹图及注入前后图、原始张量；输出`outputs/model_figure_clara_denoising_replay_20261029/`，独立PNG/JPG目录`outputs/clara_figure_images_20261030/`。
+
 - 原始完整benchmark：140集／2491镜头，生成与官方非VLM评测完成；不可覆盖或重新解释为新方案结果。
-- 当前多人3D方案：run700完整10镜头和12项非VLM评测已完成；首批4集已生成22/48镜头，兼容修复后在tmux等待GPU恢复，再继续生成与评测。
+- 当前多人3D方案：run700完整10镜头及12项非VLM评测完成；首批低指标4集／48shot于北京时间2026-10-29 21:59完成生成及逐集官方非VLM评测，四集配对聚合也已完成，缺失0；完整人工视频审阅待完成。后台队列已正常结束，不重复启动。
+- run484 / 5:2继承Nora白名单冲突已修复并跑完。保留既有Agent计划、人物资产和41个已完成shot；最后7shot使用`inherited_cast_20261029`兼容修复。历史异常已归档，不把最终状态的0异常解读为从未中断。
 - 用户最新授权：整张没有角色通过3D门控属于正常跳过，使用同次Control继续，不需确认；技术异常记录并继续处理其他episode，尽量完成整批。不得放宽阈值、隐瞒缺失或自动更换模型。
+- 10月29日硬切人物规则修订`hardcut_cast_20261029`：既有22shot保持原结果，剩余26shot使用新提示词；未执行的run1404/5:1旧计划已归档，恢复后重新规划，详见[续跑记录](docs/entitybench_weak4_resume_20261029.md)。
 - VLM评测继续关闭：strict、skip_vlm，调用0。Agent规划与B路线视频生成API已获授权，不属于VLM评分。
+
+## 首帧绘图素材skill
+
+已安装`movie-firstframe-figure-assets`，仓库副本`skills/movie-firstframe-figure-assets/`。原Clara精确重放和183张图片包保留；新做320个大脸角色配对的CPU身份筛选，推荐仅小幅正向候选，不能宣称大幅身份恢复。原Clara4:1最终IF 0.6047→0.6044，仅适合流程展示。详见[skill及选例说明](docs/entitybench_firstframe_figure_skill_selection_20261030.md)；未启动额外GPU生成或修改官方指标。
 
 ## 原始完整benchmark设计
 
@@ -61,7 +80,7 @@ Agent使用配置中的`SHOT_AGENT_MODEL`（当前qwen3.8-max），读取上一�
 | B过渡＋行动 | 要在同一可连续视觉空间显示人物进入，且之后还有当前shot行动 | 生成进入完成、行动尚未完成的目标尾帧；Wan3.0-video API用实际前尾帧＋目标图生成3秒过渡；再用过渡视频实际解码尾帧生成81帧行动段，固定1＋1 |
 | C新镜头 | 主体、拍摄区域、机位或构图需重建，故事不要求连续移镜 | 结合人物参考、当前文字生成动作起始帧；接续C只用上一实际尾帧作已有环境/画风线索，硬切C不传前尾帧；从新帧生成视频 |
 
-原始cut=true强制C；cut=false并不等于必须A。原cut标记仍保留给官方边界评测。B增加过渡时长，新结果与原始不保证等时长。没有独立背景素材库；接续帧唯一已有环境图是自身上一实际尾帧。
+原始cut=true强制C；cut=false并不等于必须A。硬切首帧默认包含全部调度角色，仅原文明示稍后入场、画外或仅声音时排除，不由Agent自行推迟人物出现；首帧保留动作起点。原cut标记仍保留给官方边界评测。B增加过渡时长，新结果与原始不保证等时长。没有独立背景素材库；接续帧唯一已有环境图是自身上一实际尾帧。
 
 ### 人物素材、提示词与画风
 
@@ -103,7 +122,7 @@ Agent使用配置中的`SHOT_AGENT_MODEL`（当前qwen3.8-max），读取上一�
 
 产物根目录：`outputs/entitybench_qwen140_run700_multiface_episode_20261028/`；原始输入/生成记录、`injection_audit.json`、`audit/completed_episode_validation.json`、`evaluation/run700_multiface_episode_v1/comparison.json`为事实来源。
 
-## 正在后台跑的低指标episode首批
+## 已完成的低指标episode首批
 
 从全140集逐集结果筛选：低于完整benchmark动态、美学、成像、角色出现、场景出现、cs_face任一均值的共有138集。本轮明确只做首批4集、48shot，不宣称全量重跑。run771和run455六项均低于均值；run484、run1404补充之前讨论过的角色进入/画风问题。筛选依据、精确阈值、原结果SHA、代码快照冻结在`cohort.json`。
 
@@ -116,12 +135,30 @@ Agent使用配置中的`SHOT_AGENT_MODEL`（当前qwen3.8-max），读取上一�
 
 这批22个角色使用干净单人参考和对应新Gaussian，逐episode冻结；因此相对原始结果同时改变人物锚点、路由、提示词和注入范围，属于完整系统改进试验。素材和视频等GPU重任务串行；每集完成后按原冻结官方口径评测12项非VLM，不与生成抢占GPU。
 
-- 后台tmux：`qwen140_multiface_weak4`；入口：`pretest/qwen140_multiface_weak_episode_batch.py run`。
+- 后台tmux已随任务完成退出；保留入口`pretest/qwen140_multiface_weak_episode_batch.py run`，当前不需要重启。
 - 根目录：`outputs/entitybench_qwen140_multiface_weak4_20261028/`。
 - 实时总进度：`status.json`；各集：`experiments/<run__tag>/progress.json`；日志：`queue.log`和各集`logs/`。
 - 技术异常：`technical_exceptions.json`及各集`technical_exception.json`；素材异常：各集`asset_failures.json`。门控跳过详见每shot的`frame/injection/result.json`与`preparation_attempt.json`，不混入技术异常计数。
-- 视频/指标入口：根目录`index.html`；各集完成后`review/index.html`含原始/新整集及逐shot链接，`report.md`含前后12项指标。未完成链接按阶段生成。
-- 2026-10-29续跑：首轮四集因数据兼容异常结束，已完成22/48shot且全部SHA验证保留；缺失场景/道具描述、旧窗口种子及可见人物参考编号已修复。当前环境CUDA不可用，后台等待GPU恢复后自动继续；原结束时间估计作废，恢复GPU后预计还需3–5小时。详见[续跑记录](docs/entitybench_weak4_resume_20261029.md)，实时以`status.json`、`eta.json`为准。
+- 视频/指标入口：根目录`index.html`及`report.md`；四集`review/index.html`含原始/新整集及逐shot链接，各自`report.md`含前后12项指标。
+- 2026-10-29最终状态：4/4完整episode、48/48shot、每集12项官方非VLM覆盖、评分失败0、VLM调用0。视频/尾帧SHA与完整四集配对聚合已核验。历史兼容修复及22/41shot保留记录见[续跑记录](docs/entitybench_weak4_resume_20261029.md)，不能声称48shot全由最后一次修订生成。
+
+### 四集最终配对结果
+
+以下按同四集等权聚合，不与全140集均值直接作前后对照。官方12项全表见运行根`report.md`。
+
+| 指标↑ | 原始同四集 | 当前多人3D集成 |
+|---|---:|---:|
+| 动态程度 | 0.4595 | 0.4515 |
+| 美学质量 | 0.5442 | 0.5603 |
+| 成像质量（0–100） | 62.6650 | 61.6548 |
+| 角色出现率 | 0.8278 | 0.9792 |
+| 场景出现率 | 0.6176 | 0.6281 |
+| 人物区域cs_face | 0.6921 | 0.6736 |
+| 接续边界一致性 | 0.9852 | 0.5836 |
+
+出现率和美学改善，但动态、成像、cs_face及接续边界退步，不能称为全面优化成功。完整人工视频审阅与退步原因分析待完成，保留所有负例；cs_face缺VLM保真度门控，不是人脸身份准确率。
+
+cs_face裁剪已于10月29日审计：发现原/新版语义定位错人、手部/衣服裁剪以及DINO中心裁剪去头等问题；170个入分裁剪复算与报告误差0，8个原帧像素核验无坐标/取帧错位。不能把cs_face下降直接解读为身份变差。详见[裁剪审计](docs/entitybench_weak4_cs_face_crop_audit_20261029.md)，官方指标未覆盖修改。
 
 ## 接手与结果解释
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "首帧注入绘图素材"
+  short_description: "Replay paired Qwen frames and export figure assets"
+  default_prompt: "Use $movie-firstframe-figure-assets to select clear paired identity improvements and export faithful first-frame denoising figures."

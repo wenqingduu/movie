@@ -14,7 +14,7 @@ os.environ.setdefault("QWEN140_INTEGRATED_OUTPUT_ROOT", str(
     ROOT / "outputs/entitybench_qwen140_run700_v7_restored_20261028"))
 
 import qwen140_integrated_episodes as core
-from qwen140_shot_agent import compile_prompts, frame_inputs, plan_shot
+from qwen140_shot_agent import compile_prompts, frame_inputs, include_inherited_descriptions, plan_shot
 from qwen140_single_pass_shot import decode
 from qwen140_wan_api import generate_video
 
@@ -99,13 +99,27 @@ def stage(action: str, run: str, key: str | None):
                    "setting_and_object_descriptions": {n: desc.get(n, n) for group in ("places", "objects")
                                                         for n in shot["entity_schedule"].get(group, [])},
                    "episode_style": style,
-                   "instruction": "按原文安排动作与道具，不增加其他人物行动。关键帧只画此刻可见角色；frame_characters必须返回。所有图像都是单幅连续电影画面。"}
+                   "instruction": ("按原文安排动作与道具，不增加其他人物行动。frame_characters必须返回。"
+                                   + ("硬切选C，首帧默认包含全部调度角色并查询其素材；仅原文明示稍后入场、画外或仅声音者可排除。"
+                                      "不得自行推迟人物出现；首帧保留动作起点，不提前完成行动。" if shot["cut"] else
+                                      "关键帧按原文安排可见角色，保留明确要求的入场过程。")
+                                   + "所有图像都是单幅连续电影画面。")}
         plan = plan_shot(context, tail, catalog, folder / "agent")
         decision = plan["decision"]
         assert not shot["cut"] or decision["route"] == "C", "Hardcut must establish a new frame"
+        inherited = {}
+        if tail is not None:
+            previous_names = ep["shots"][index-1]["entity_schedule"].get("characters", [])
+            previous_frame_names = parent["route"].get("frame_characters", [])
+            inherited = {name: desc[name] for name in dict.fromkeys(previous_names + previous_frame_names)}
+        plan = include_inherited_descriptions(plan, inherited)
         frame_names = decision["frame_characters"]
-        assert isinstance(frame_names, list) and set(frame_names) <= set(catalog)
         assert len(frame_names) == len(set(frame_names))
+        core.write_once(folder / "inherited_characters.json", {
+            "source_shot": ep["shots"][index-1]["shot_key"] if tail is not None else None,
+            "parent_tail_sha256": core.sha(tail) if tail is not None else None,
+            "descriptions": {name: inherited[name] for name in frame_names if name not in catalog},
+            "policy": "Previous-shot candidates verified visually by Agent; retain original descriptions without adding reference conditioning images"})
         if decision["route"] == "C" and tail is None:
             assert set(frame_names) <= {a["name"] for a in plan["assets"]}, "New hardcut lacks a visible role reference"
         missing = [n for group in ("places", "objects") for n in shot["entity_schedule"].get(group, []) if n not in desc]
