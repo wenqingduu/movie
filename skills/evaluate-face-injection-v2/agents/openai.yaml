@@ -1,4 +1,4 @@
 interface:
   display_name: "Face Injection Evaluation v2"
-  short_description: "Official EntityBench evaluation with GPU concurrency"
-  default_prompt: "Use $evaluate-face-injection-v2 to evaluate the requested movie videos with official EntityBench non-VLM metrics and bounded episode concurrency."
+  short_description: "EntityBench metrics plus reviewed visible-face region DINO"
+  default_prompt: "Use $evaluate-face-injection-v2 to evaluate the requested videos with the default visible-single-face, localization-reviewed character-region DINO and separate official EntityBench non-VLM metrics, preserving input hashes and coverage."

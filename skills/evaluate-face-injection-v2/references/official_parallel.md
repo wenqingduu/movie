@@ -1,5 +1,11 @@
 # Official non-VLM execution
 
+This helper provides the unmodified official scores and canonical crops. The
+user's default project character-consistency row now requires the subsequent
+[visible-single-face gate and localization review](visible_single_face_region_dino.md).
+An official helper success alone does not complete that diagnostic; keep raw
+`cs_face` separate and mark the reviewed row pending until its stages finish.
+
 The current story run completed generation and serial official non-VLM scoring on 2026-10-12:
 `/root/autodl-tmp/movie/outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep`.
 Read status/report files for live values. Do not rerun its complete evaluation merely because this skill was created.
