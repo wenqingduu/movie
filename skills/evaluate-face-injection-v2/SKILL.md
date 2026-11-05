@@ -1,6 +1,6 @@
 ---
 name: evaluate-face-injection-v2
-description: Evaluate movie videos with EntityBench metrics and the project's default visible-single-face, localization-reviewed character-region DINO, using input-verified resume and episode aggregation. Use for full-story or benchmark evaluation; use the original evaluate-face-injection skill for paired InsightFace/reference-face DINO ablations.
+description: Evaluate movie videos with EntityBench metrics and the project's default visible-single-face, localization-reviewed character-region DINO, using verified cache reuse, bounded GPU parallelism and episode aggregation. Use for full-story or benchmark evaluation; use the original evaluate-face-injection skill for paired InsightFace/reference-face DINO ablations.
 ---
 
 # Face Injection Evaluation v2
@@ -28,7 +28,11 @@ Read `LLM_HANDOFF.md`, the requested run's manifest/status and [the default DINO
 
 The parallel helper below performs **only step 1**. A successful official helper exit does not complete this default workflow; the diagnostic remains pending until step 2 is complete. Existing full140/rerun adapters have fixed cohort paths: use them only with their matching manifest, or make an isolated adapter for a different cohort while preserving the protocol.
 
-## Prefer bounded parallel evaluation
+## Prefer verified reuse, then bounded parallel evaluation
+
+For reruns or partial replacements, first read [the verified acceleration workflow](references/verified_cache_acceleration.md). Preserve completed compatible episode scores; reuse the six per-video VBench dimensions only when video SHA and scoring provenance match; compute new-video values with the original scorer. Recompute affected episodes' grounding, presence, cross-shot centroids and boundaries using their complete new sequence. Aggregate all episodes once with the official aggregator. This changes execution cost, not metric definitions or the selected population.
+
+The generic parallel helper below does **not** implement per-video VBench reuse. The validated project cache adapter is snapshot-bound; adapt it in a new, input-bound wrapper for another cohort. Never rerun the historical PID-bound checkpoint handoff script as a generic accelerator. The reference describes cache eligibility, validation and resume receipts.
 
 Schedule **complete episodes**. Centroids and continuation boundaries require the whole episode; do not split its shots across independent scoring jobs or average shard summaries.
 

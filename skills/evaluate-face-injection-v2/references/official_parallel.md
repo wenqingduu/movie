@@ -6,6 +6,12 @@ user's default project character-consistency row now requires the subsequent
 An official helper success alone does not complete that diagnostic; keep raw
 `cs_face` separate and mark the reviewed row pending until its stages finish.
 
+For partial reruns, first apply [verified cache acceleration](verified_cache_acceleration.md):
+preserve compatible complete episodes, reuse exact-video per-shot VBench values
+through a separately validated cache adapter, and recompute affected cross-shot
+metrics. This helper supports parallelism/resume but does not itself inject that
+per-video cache. Use fresh, bound plans rather than the old PID-specific handoff.
+
 The current story run completed generation and serial official non-VLM scoring on 2026-10-12:
 `/root/autodl-tmp/movie/outputs/entitybench_pulid_i2v_a14b_4step_continuation_20ep`.
 Read status/report files for live values. Do not rerun its complete evaluation merely because this skill was created.
