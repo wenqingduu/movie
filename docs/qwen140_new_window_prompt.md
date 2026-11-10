@@ -1,23 +1,43 @@
-# 新会话接手提示词
+<!-- push-state-20261110:start -->
+## 代码归档前状态（2026-11-10 15:55 北京时间）
 
-复制下面内容到新会话。状态数字为静态交接，先读实际进程和实时文件。
+用户已授权按movie-github-ssh-push skill提交并推送实验代码和交接文档。此记录的运行快照：78集4步v2整集队列正常运行，生成154/1218shot、完整完成11/78集官方12项，当前`00087828-20a3-3c31-82c5-88bf08bd0d61__run988__i55_j74__T240`／`silas_facelift`。此前7个Agent工具调用结构错误仍留档，无新增中断；未改运行中的源码/计划/模型/阈值，未重启队列。
+
+最新完整benchmark仍为`outputs/entitybench_full140_current35_newepisodes_20261110/`的35条版叠加7集77shot冻结版本；其后完成集尚未合并，不将当前完整11集误报为均已进入该表。所有outputs、模型、密钥、PPT、模型图草稿及无关前端修改只留本地；代码推送不包含这些产物。推送结果以会话最终提交hash和远端验证为准。
+<!-- push-state-20261110:end -->
+
+<!-- current35-new-episodes-20261110:start -->
+## 最新benchmark更新：35条版叠加7个完整新集（2026-11-10 12:09 北京时间）
+
+用户要求把新结果替换到当前35条版。最新权威版本为`outputs/entitybench_full140_current35_newepisodes_20261110/`，13项全部完成；冻结11:58时已完成7集77shot，其余133集2414shot沿用35条版，完整140集2491shot。新整集覆盖其中4个旧独立动态替换，余31保留；不覆盖原文件，不以分数筛选新集。默认DINO .7990→.7976；主体 .9414→.9431；动态 .4873→.4731；角色出现 .9479→.9501；场景出现 .6249→.6206；边界 .8441→.8243。所有指标见`complete_report.md`与`complete_comparison.json`。完整说明`docs/entitybench_full140_current35_newepisodes_20261110.md`。
+
+官方12项同协议完整episode缓存重聚合，默认DINO对新裁剪重做可见单脸门控、43项全部视觉复核（41keep/2明确错人exclude），保留真实漂移/重复/不确定，非外部人工签核；有效episode130，角色计分次1486。已精确复现35版，2491媒体SHA/软链接与178项冻结绑定全部验证。strict/skip_vlm、VLM0、partial_without_vlm，非51项全评。原35版保留为历史基线，下文称其“最新”的历史段落由本段覆盖。
+
+后台仍在跑78集4步队列：12:09实查119/1218shot生成，8/78集完整（89shot）；第8集run909在本表冻结后完成，尚未纳入。当前run910/i20_j43构建3D素材。7个Agent lookup_characters调用结构异常的episode留档中断，已继续其他集，未自动语义修复；细节见完整说明。主supervisor已恢复运行，无新守护Agent，无旧40步/4步动态队列恢复。保持当前授权与现有源码；下次先实查进程，勿重复启动。没有Git推送。
+<!-- current35-new-episodes-20261110:end -->
+
+# 新会话接手提示词（2026-11-09，整集优先）
 
 ```text
-请接手 /root/autodl-tmp/movie，使用中文。先读LLM_HANDOFF.md（最新记录在前）、docs/entitybench_full140_completed41_snapshot_20261103.md，再查git status、tmux、进程、GPU、磁盘；保留所有无关改动，不重复启动GPU任务。
+最新benchmark更新（2026-11-09 22:11北京时间）：本会话仅完成暂停时8条40步视频的评测收尾；8条6VBench均完成，7条0→1（除M0010），累计64尝试/35替换/2456不变，剩1269条40步未生成。40步动态队列仍暂停，不自动恢复；下述独立78集4步整集恢复队列保持其自身授权与状态，本次未停止或修改。最新完整140非VLM结果与默认人物DINO复核均已完成，输出outputs/entitybench_original40_priority_remaining_20261109/paused8_benchmark_20261109/benchmark_summary.md及JSON。7完整episode/161shot重算、966项缓存值与2491媒体SHA验证通过，评分失败0；默认DINO3份助手隐藏分数视觉复核（含3精确原帧），3保留/0新增排除，Riley(run44/9:1)身份关联未决保留、57旧排除按精确SHA沿用，不称外部人工签核。默认人物DINO .7990（130有效集/1465角色次），主体.9414、时间稳定.9863、平滑.9920、动态.4873、美学.5859、成像60.8634、角色.9479、物体.8981、场景.6249、raw人物.7238、raw物体.8077、接缝.8441；动态精确.487254139136，比28版+.325108个百分点，累计+1.390115个百分点。39项VLM仍null，Table4缺15项，partial_without_vlm；所有下降保留。visible_region/report.json为最终，automatic为中间。下方“8条0新评分/默认DINO待审”是历史，勿覆盖这份已完成35版报告；新整集生成结果尚未纳入本快照。
 
-当前后台是tmux qwen140_episode_repairs；入口pretest/qwen140_repair_priority_queue_v2_20261103.py run，技术适配器pretest/qwen140_technical_resume_v2_20261103.py。状态、日志和不可变计划位于outputs/entitybench_episode_repairs_20261103/（status.json、progress.json、queue.log、queue_v2.json）。canonical pointer为outputs/entitybench_qwen140_multiface_remaining126_20261030/active_queue.json。旧remaining126原次序和旧qwen140_csface_priority队列已退出，不启动它们；守护修复Agent保持关闭。
+最新恢复：2026-11-09 22:09（北京时间），扩容后继续78集4步整集队列
 
-该队列继续原55集1413shot低DINO cohort，先补原16个中断集，再接原55集未完成部分。运行中的19个冻结生成源码不可原地修改。仅T5 checkpoint torch.load mmap=True，242张量bit-exact且整集实跑验证；人物查询有效ID约束、匿名人物保留行动；只对原task_id的GET网络错误作有限重试，POST不重试。模型、BF16、LoRA、种子、v7身份/面积/姿态门控、画风策略不变。正常全图注入跳过无需确认；技术异常留档继续其它集，全局额度/认证或再现SIGKILL会停止留档。
+用户明确“继续吧，我刚刚扩容了一下”。实查数据盘450GiB、可用约113GiB，覆盖此前约60～65GiB的新增估计；不设reserve、不删除旧产物。旧整集tmux已退出，状态停留run714/i20_j34的1/10shot完成、2:1首帧第8/20步，日志无退出异常尾部，不能断言是磁盘不足。已完成的人物3D资产、1:1视频及2:1 Agent/提示词/帧task全部保留。
 
-11月4日17:29静态状态：本55队列19集完整、原16中断集修复10集；加此前30集累计49集完整生成并完成常规非VLM评测。当前run34/i0_j23，当时12/15shot、6:5首帧；数字以实时各集progress为准。run53/i65_j78在4:3过渡API返回IPInfringementSuspect，保留前8shot，未自动改提示词，整集未完成。后台修复后无新增T5加载SIGKILL。
+恢复tmux仍为`qwen140_never_rerun_v2_20261109`，**实际新入口为 `pretest/qwen140_never_rerun_resume_20261109.py run`**，日志及范围仍`outputs/entitybench_never_rerun_episodes_v2_20261109/`。原78集/1218shot冻结plan、原生成与评测源代码不改。新恢复入口只绕开旧v1迁移器对“无成品帧”的自动archive/replan，直接安装同一v2并继续`run_remaining`，从2:1相同输入重算未完成的采样，不新查角色/重写Agent计划。17项已存结果与计划SHA绑定在`resume_after_expansion_20261109.json`，编译与v2/run/tag探测通过，预检API0。正常后续新shot仍按原流程调Agent与B过渡API；主视频仍4步、原多人v7门控，不恢复40步动态队列。
 
-用户只授权并已删除models/llm/Qwen2.5-14B-Instruct-AWQ（9.31GiB），SDXL和IP-Adapter仍保留；不要把被中断的先前三模型请求当继续删除授权。清理记录outputs/disk_model_cleanup_audit_20261103/。当前空闲约20.6GiB，队列保留8GiB，空间不足等待，不删历史结果/参考/Gaussian。
+恢复前另一已生成8条的完整上下文评测已释放GPU，状态为official_full140_complete_default_dino_review_pending（新增7、累计35替换），不覆盖其结果，不把默认DINO未复核当完成。该评测的“暂停所有生成”交接是此前状态，**本轮用户明确继续78集整集生成为当前授权**，无新增动态40步授权。第一集实际恢复阶段以新status/progress/log为准，完成进度不重复清零。预计仍约5～6天，首集完成后校准。无守护Agent、无自动改模型/提示词/阈值、无推送。
 
-最新已发布全量指标为outputs/entitybench_full140_completed41_snapshot_20261103/report.md：按11月3日17:20冻结41集670shot重跑＋99集1821shot原版，完整140集2491shot；不是140集统一新版重跑。默认DINO0.7863→0.7920（131有效集、1380→1417次），raw cs_face0.7155→0.7214，角色出现0.9212→0.9437，成像59.6517→60.4016；动态/场景/边界下降。之后新完成集尚未纳入该冻结表。完整CSV、all/easy/medium/hard、输入SHA验证同目录。
+请接手 /root/autodl-tmp/movie，用中文。先读 docs/entitybench_session_handoff_20261109.md 顶部与 LLM_HANDOFF.md，再核对实际tmux/进程/GPU/磁盘；不要按历史队列自动恢复或重复启动。
 
-评测按skills/evaluate-face-injection-v2/SKILL.md及references/visible_single_face_region_dino.md。默认人物一致性是可见单脸筛选＋确认定位错误剔除后的原人物区域DINO；保留官方raw cs_face。原裁剪三项排除只按精确SHA沿用，新图重新复查，排除后重算质心。不能把自动门控中间结果当最终复查结果，不删除真实身份/画风失败/重复人物或未决案例。官方strict/skip_vlm、VLM0，保真度门控缺失如实说明。
+最新用户要求停掉动态增强，先跑从未整集重跑的episode，并明确选择原整集4步配置。40步1277队列已停止，保留第一批8生成/0新评分，不新增媒体替换，不自动恢复。此前累计28替换版全指标已完成，结果保留。
 
-用户接受新版run594/i75_j98的3:4单Leo6步注入和3:5原目标图复用＋新过渡/主段。新版已纳入此前30集评测；绘图素材和noised references、实际去噪张量、Leo/Marcus四角渲染均已导出，入口见LLM_HANDOFF。不要重跑已接受媒体，不补Control视频，除非用户新要求。
+新tmux qwen140_never_rerun_v2_20261109，入口 pretest/qwen140_never_rerun_episodes_20261109.py run，范围唯一来源 outputs/entitybench_never_rerun_episodes_v2_20261109/plan.json：78episode/1218shot，启动前无整集shot、无rerun_manifest、未complete，启动证据inventory_at_launch.json。部分有独立shot实验，“未整集”不等于从未做过任何候选。另4个部分整集不跑，已complete的run445不重复。首集run714/i20_j34/10shot，复用其已生成的人物素材构建前缀；启动时处于references，尚无新shot。
 
-授权范围：继续后台实验，正常门控跳过不用确认；异常记录并推进其它集。不自动变更模型、降低阈值、语义重试或复活守护Agent。用户请求状态则查实时证据；评测只纳入完整episode，冻结快照不随运行中队列滚动变动。Git提交按用户明确请求进行，outputs/模型/环境密钥不上传。
+沿用v2_20261104路由Agent+人物描述绑定+episode画风+多人v7 3D；主视频LightX2V4步81帧16fps，不使用这轮动作/背景强化词，不换40步。B仍用原wan3.0-video首尾帧API，A自身真实上一尾帧，B/C正常单/多人注入。保留正常小脸/姿态等门控和Control跳过，不取消3D，不自动改词、语义重试、降模型/阈值。没有修复Agent。
+
+新调度status.json/queue.log/stage_timings.jsonl在新输出；素材、shot、整集视频与12项官方评测仍写原outputs/entitybench_qwen140_multiface_remaining126_20261030/experiments/<完整eid>/。每集完整生成后strict/skip_vlm评12项，VLM0；默认可见单脸+定位纠错DINO需单独复核，raw cs_face不是人脸识别，auto不充final。评测依evaluate-face-injection-v2 skill。初估5～6天，按新实测校准；13GiB余量不足预计新增60～65GiB的全队列，用户需扩容，不设reserve/不删旧产物。系统性API/磁盘/OOM错误停队列记录，单集技术错误留档继续其他，不创建守护。SSH可断开但服务器保持开机。
+
+不读/打印.env.portrait密钥，不自行push；保留所有无关改动/PPT/中文模型图、docs/frontend_agent_architecture.md、experiment_output。不恢复旧动态1333、1277或原整集调度。新wrapper已通过编译、冻结SHA与run/tag/v2编译器probe，真实出片看日志不看预检。所有细节以最新handoff和实际status为准。
 ```
